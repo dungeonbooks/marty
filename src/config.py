@@ -39,8 +39,8 @@ class Config:
     BOOKSTORE_API_URL: str | None = os.getenv("BOOKSTORE_API_URL")
     BOOKSTORE_API_KEY: str | None = os.getenv("BOOKSTORE_API_KEY")
 
-    # Bookshop.org Affiliate Integration (to be added)
-    BOOKSHOP_AFFILIATE_ID: str | None = os.getenv("BOOKSHOP_AFFILIATE_ID")
+    # Bookshop.org Affiliate Integration
+    BOOKSHOP_AFFILIATE_ID: str = os.getenv("BOOKSHOP_AFFILIATE_ID", "108216")
 
     # SMS Configuration
     SMS_MULTI_MESSAGE_ENABLED: bool = (

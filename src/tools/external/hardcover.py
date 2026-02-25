@@ -22,19 +22,10 @@ from src.tools.base import BaseTool, ToolResult
 logger = structlog.get_logger(__name__)
 
 
-# Note: extract_isbn_13_from_editions function removed as direct ISBN links may be international editions
+from src.tools.external.bookshop import BookshopClient
 
-
-# Note: extract_and_replace_bookshop_link function removed as the 'links' field is always empty
-
-
-def generate_bookshop_search_link(
-    title: str, author: str | None = None, our_affiliate_id: str = "108216"
-) -> str:
-    """Generate a bookshop.org search link with our affiliate ID using just the title."""
-    # Just use title for better search results - authors often hurt search accuracy
-    search_query = title.replace(" ", "+")
-    return f"https://bookshop.org/search?keywords={search_query}&affiliate={our_affiliate_id}"
+# Shared client instance for ISBN validation and link generation
+bookshop_client = BookshopClient()
 
 
 class HardcoverAPIError(Exception):
@@ -951,10 +942,10 @@ class HardcoverTool(BaseTool):
             elif book.get("cached_contributors"):
                 book["author"] = book["cached_contributors"]
 
-            # Use search links as primary approach since direct ISBN links may be international editions
+            # Validate ISBNs against bookshop.org for direct affiliate links
             if book.get("title"):
-                book["bookshop_link"] = generate_bookshop_search_link(
-                    book["title"], book.get("author")
+                book["bookshop_link"] = await bookshop_client.resolve_link(
+                    book.get("editions", []), book["title"]
                 )
 
         return book
@@ -1021,11 +1012,11 @@ class HardcoverTool(BaseTool):
             elif book.get("cached_contributors"):
                 book["author"] = book["cached_contributors"]
 
-            # Use search links as primary approach since direct ISBN links may be international editions
+            # Validate ISBNs against bookshop.org for direct affiliate links
             title = book.get("title", "")
             if title:
-                book["bookshop_link"] = generate_bookshop_search_link(
-                    title, book.get("author")
+                book["bookshop_link"] = await bookshop_client.resolve_link(
+                    book.get("editions", []), title
                 )
 
         return books
@@ -1209,11 +1200,11 @@ class HardcoverTool(BaseTool):
             elif book.get("cached_contributors"):
                 book["author"] = book["cached_contributors"]
 
-            # Use search links as primary approach since direct ISBN links may be international editions
+            # Validate ISBNs against bookshop.org for direct affiliate links
             title = book.get("title", "")
             if title:
-                book["bookshop_link"] = generate_bookshop_search_link(
-                    title, book.get("author")
+                book["bookshop_link"] = await bookshop_client.resolve_link(
+                    book.get("editions", []), title
                 )
 
             # Truncate description for better presentation
@@ -1318,8 +1309,8 @@ class HardcoverTool(BaseTool):
 
                 title = book.get("title", "")
                 if title:
-                    book["bookshop_link"] = generate_bookshop_search_link(
-                        title, book.get("author")
+                    book["bookshop_link"] = await bookshop_client.resolve_link(
+                        book.get("editions", []), title
                     )
 
                 description = book.get("description", "")

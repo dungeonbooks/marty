@@ -1,5 +1,6 @@
 """External API tools for Marty."""
 
+from .bookshop import BookshopClient
 from .hardcover import (
     HardcoverAPIError,
     HardcoverAuthError,
@@ -9,6 +10,7 @@ from .hardcover import (
 )
 
 __all__ = [
+    "BookshopClient",
     "HardcoverTool",
     "HardcoverAPIError",
     "HardcoverAuthError",
