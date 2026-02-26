@@ -20,7 +20,6 @@ class BookshopClient:
     """Async client for validating ISBNs and generating bookshop.org links."""
 
     BASE_URL = "https://bookshop.org"
-    IMAGE_CDN = "https://images-us.bookshop.org"
     REQUEST_TIMEOUT = 3.0  # seconds
 
     async def validate_isbn(self, isbn: str) -> bool:
@@ -63,11 +62,6 @@ class BookshopClient:
         aid = affiliate_id or config.BOOKSHOP_AFFILIATE_ID
         search_query = quote_plus(title)
         return f"https://bookshop.org/search?keywords={search_query}&affiliate={aid}"
-
-    @staticmethod
-    def get_cover_url(isbn: str, height: int = 250) -> str:
-        """Return the bookshop.org CDN cover image URL."""
-        return f"https://images-us.bookshop.org/ingram/{isbn}.jpg?height={height}"
 
     async def resolve_link(
         self,

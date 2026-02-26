@@ -18,11 +18,9 @@ from gql.transport.exceptions import TransportError, TransportQueryError
 
 from src.config import config
 from src.tools.base import BaseTool, ToolResult
+from src.tools.external.bookshop import BookshopClient
 
 logger = structlog.get_logger(__name__)
-
-
-from src.tools.external.bookshop import BookshopClient
 
 # Shared client instance for ISBN validation and link generation
 bookshop_client = BookshopClient()

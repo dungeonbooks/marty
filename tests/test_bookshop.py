@@ -103,19 +103,6 @@ def test_get_search_url_special_characters(client):
     assert "&affiliate=108216" in url
 
 
-# --- get_cover_url ---
-
-
-def test_get_cover_url(client):
-    url = client.get_cover_url("9780316769488")
-    assert url == "https://images-us.bookshop.org/ingram/9780316769488.jpg?height=250"
-
-
-def test_get_cover_url_custom_height(client):
-    url = client.get_cover_url("9780316769488", height=500)
-    assert url == "https://images-us.bookshop.org/ingram/9780316769488.jpg?height=500"
-
-
 # --- resolve_link ---
 
 
