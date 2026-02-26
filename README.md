@@ -1,79 +1,79 @@
-# Marty - AI Bookstore SMS Chatbot
+# Marty - Dungeon Books SMS & Discord Chatbot
 
 [![Railway Deployment](https://img.shields.io/badge/Railway-Deployed-brightgreen)](https://railway.com/project/9ae0f484-5538-4866-9757-a6931049b1e9?environmentId=dddc87ce-de5b-4928-8e27-3c40c088ef05)
 
-an ai chatbot that recommends books via SMS and discord messages. powered by claude ai.
+A chatbot that recommends books and chats with customers via SMS and Discord.
 
-marty is a burnt-out wizard who used to do software engineering and now works at dungeon books. he's genuinely magical but completely casual about it.
+Marty is a burnt-out wizard who used to do software engineering and now works at Dungeon Books. He's genuinely magical but completely casual about it.
 
 ## What It Does
 
-- chat with customers about books via SMS and Discord
-- give book recommendations using claude ai with tool calling
-- remember conversation history
-- integrate with hardcover api for book data
-- handle customer info and orders (eventually)
-- send responses that sound like a real person texting
+- Chat with customers about books via SMS and Discord
+- Give personalized book recommendations
+- Remember conversation history
+- Integrate with Hardcover API for book data
+- Handle customer info and orders (eventually)
+- Send responses that sound like a real person texting
 
-**mention `@marty` to chat in a thread**
+**Mention `@marty` to chat in a thread**
 
 ![](docs/chat.jpg)
 
-**rich embeds via `/book`, `!book`, or chatting about a book**
+**Rich embeds via `/book`, `!book`, or chatting about a book**
 
 ![](docs/embed.jpg)
 
-**recent releases via `/recent`**
+**Recent releases via `/recent`**
 
 ![](docs/recent.jpg)
 
 ## Tech Stack
 
-- python 3.13
-- fastapi with async support
-- hypercorn asgi server (dual-stack ipv4/ipv6)
-- claude ai for conversations
-- postgresql with sqlalchemy
-- hardcover api for book data
+- Python 3.13
+- FastAPI with async support
+- Hypercorn ASGI server (dual-stack IPv4/IPv6)
+- Claude for conversations
+- PostgreSQL with SQLAlchemy
+- Hardcover API for book data
 - pytest for testing
-- ruff for code quality
+- Ruff for code quality
 - ty for type checking
 - uv for dependency management
 - just for command running
 
 ## Requirements
 
-- python 3.13
+- Python 3.13
 - uv (for dependency management)
 - just (for command running)
-- postgresql database (supabase recommended)
-- redis server (for rate limiting and caching)
-- anthropic api key
-- hardcover api token
-- sinch sms api credentials
+- PostgreSQL database (Supabase recommended)
+- Redis server (for rate limiting and caching)
+- Anthropic API key
+- Hardcover API token
+- Sinch SMS API credentials
 
 ## Setup
 
 ### Install Dependencies
 
 ```bash
-# install uv if not already installed
+# Install uv if not already installed
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# install just command runner
+# Install just command runner
 curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to ~/bin
 
-# install GNU parallel (required for CI and fast local checks)
+# Install GNU parallel (required for CI and fast local checks)
 # Debian/Ubuntu:
 sudo apt-get update && sudo apt-get install -y parallel
 # macOS (with Homebrew):
 brew install parallel
 
-# clone repository
+# Clone repository
 git clone <repository-url>
 cd marty
 
-# complete project setup
+# Complete project setup
 just setup
 ```
 
@@ -81,10 +81,10 @@ just setup
 
 ```bash
 cp .env.example .env
-# edit .env with your actual credentials
+# Edit .env with your actual credentials
 ```
 
-required environment variables:
+Required environment variables:
 
 ```
 DATABASE_URL=postgresql+asyncpg://user:password@host:5432/dbname
@@ -99,30 +99,30 @@ REDIS_URL=redis://localhost:6379/0
 
 ### Database Setup
 
-production (supabase):
+Production (Supabase):
 
 ```bash
-# apply migrations
+# Apply migrations
 alembic upgrade head
 ```
 
-local development (sqlite):
+Local development (SQLite):
 
 ```bash
-# set sqlite in .env
+# Set SQLite in .env
 DATABASE_URL=sqlite+aiosqlite:///./marty.db
 
-# apply migrations
+# Apply migrations
 alembic upgrade head
 ```
 
 ### Verify Setup
 
 ```bash
-# test database connection
+# Test database connection
 python src/database.py
 
-# comprehensive integration test (⚠️ makes real API calls - costs money)
+# Comprehensive integration test (⚠️ makes real API calls - costs money)
 uv run python scripts/smoke_test.py
 ```
 
@@ -140,7 +140,7 @@ Production server:
 uv run python src/main.py
 ```
 
-server runs on http://localhost:8000 with dual-stack ipv4/ipv6 binding
+Server runs on http://localhost:8000 with dual-stack IPv4/IPv6 binding.
 
 ## API Endpoints
 
@@ -150,7 +150,7 @@ server runs on http://localhost:8000 with dual-stack ipv4/ipv6 binding
 GET /health
 ```
 
-returns database connectivity and system status
+Returns database connectivity and system status.
 
 ### SMS Webhook
 
@@ -158,7 +158,7 @@ returns database connectivity and system status
 POST /webhook/sms
 ```
 
-request:
+Request:
 
 ```json
 {
@@ -168,7 +168,7 @@ request:
 }
 ```
 
-response:
+Response:
 
 ```json
 {
@@ -183,7 +183,7 @@ response:
 POST /chat
 ```
 
-request:
+Request:
 
 ```json
 {
@@ -192,7 +192,7 @@ request:
 }
 ```
 
-response:
+Response:
 
 ```json
 {
@@ -212,7 +212,7 @@ response:
 just chat
 ```
 
-Terminal chat interface for testing AI responses without SMS pipeline.
+Terminal chat interface for testing responses without the SMS pipeline.
 
 **SMS Testing** (⚠️ uses real API):
 
@@ -225,11 +225,11 @@ Interactive SMS testing interface for sending real SMS messages and testing webh
 **Integration Testing** (⚠️ costs money):
 
 ```bash
-# enable real API calls and run smoke test
+# Enable real API calls and run smoke test
 MARTY_ENABLE_REAL_API_TESTS=1 just smoke-test
 ```
 
-Comprehensive test of all integrations: Claude AI, Hardcover API, and database.
+Comprehensive test of all integrations: Claude, Hardcover API, and database.
 Makes real API calls - use sparingly.
 
 ### Test Suite
@@ -237,79 +237,79 @@ Makes real API calls - use sparingly.
 **Unit Tests** (fast, no infrastructure):
 
 ```bash
-# run unit tests only
+# Run unit tests only
 just ci
 
-# or manually
+# Or manually
 pytest -m "not integration"
 ```
 
 **Integration Tests** (requires infrastructure):
 
 ```bash
-# run all tests including integration
+# Run all tests including integration
 just test-all
 
-# run only integration tests
+# Run only integration tests
 just test-integration
 ```
 
 **Additional Test Commands**:
 
 ```bash
-# specific test files
+# Specific test files
 just test-file test_ai_client.py
 
-# with coverage
+# With coverage
 just test-cov
 
-# verbose output
+# Verbose output
 just test-verbose
 ```
 
-**AI Testing**: All Claude AI calls are automatically mocked in tests to prevent costs. Real API calls only happen in smoke tests when `MARTY_ENABLE_REAL_API_TESTS=1` is set.
+**Testing**: All Claude API calls are automatically mocked in tests to prevent costs. Real API calls only happen in smoke tests when `MARTY_ENABLE_REAL_API_TESTS=1` is set.
 
 ### Code Quality
 
 **Pre-commit Hooks** (recommended):
 
 ```bash
-# install hooks (runs linting, type checking, and unit tests)
+# Install hooks (runs linting, type checking, and unit tests)
 just pre-commit-install
 
-# run all pre-commit checks manually
+# Run all pre-commit checks manually
 just pre-commit-run
 ```
 
 **Manual Code Quality**:
 
 ```bash
-# format code
+# Format code
 just format
 
-# lint code
+# Lint code
 just lint
 
-# type check
+# Type check
 just check
 
-# run all checks
+# Run all checks
 just check-all
 ```
 
 ### Database Migrations
 
 ```bash
-# generate migration
+# Generate migration
 just db-revision "description"
 
-# apply migrations
+# Apply migrations
 just db-migrate
 
-# rollback
+# Rollback
 just db-rollback
 
-# reset database
+# Reset database
 just db-reset
 ```
 
@@ -318,16 +318,16 @@ just db-reset
 **Available Commands**:
 
 ```bash
-# show all available commands
+# Show all available commands
 just --list
 
-# fast CI checks (no infrastructure)
+# Fast CI checks (no infrastructure)
 just ci
 
-# full CI with integration tests
+# Full CI with integration tests
 just ci-full
 
-# watch mode for development
+# Watch mode for development
 just watch
 ```
 
@@ -346,108 +346,108 @@ just watch
 
 ## Configuration
 
-### Claude AI
+### Claude
 
-get api key from console.anthropic.com
-add to .env as ANTHROPIC_API_KEY
+Get API key from console.anthropic.com.
+Add to .env as `ANTHROPIC_API_KEY`.
 
 ### Hardcover API
 
-request access at hardcover.app/api
-add token as HARDCOVER_API_TOKEN=Bearer your_token
+Request access at hardcover.app/api.
+Add token as `HARDCOVER_API_TOKEN=Bearer your_token`.
 
 ### Environment Variables
 
-- DATABASE_URL: postgresql connection string
-- ANTHROPIC_API_KEY: claude ai api key
-- HARDCOVER_API_TOKEN: book data api token
-- BOOKSHOP_AFFILIATE_ID: optional affiliate links
-- SINCH_API_TOKEN: sinch api token for sms sending
-- SINCH_SERVICE_PLAN_ID: sinch service plan identifier
-- SINCH_FROM_NUMBER: virtual phone number for sending sms
-- SINCH_WEBHOOK_SECRET: webhook signature verification
-- REDIS_URL: redis connection string for rate limiting
-- SMS_RATE_LIMIT: messages per window (default: 5)
-- SMS_RATE_LIMIT_WINDOW: rate limit window in seconds (default: 60)
-- SMS_RATE_LIMIT_BURST: burst limit per hour (default: 10)
-- DEFAULT_PHONE_REGION: default region for phone parsing (default: US)
-- DEBUG: true/false
-- LOG_LEVEL: INFO/DEBUG
+- `DATABASE_URL`: PostgreSQL connection string
+- `ANTHROPIC_API_KEY`: Anthropic API key
+- `HARDCOVER_API_TOKEN`: Book data API token
+- `BOOKSHOP_AFFILIATE_ID`: Optional affiliate links
+- `SINCH_API_TOKEN`: Sinch API token for SMS sending
+- `SINCH_SERVICE_PLAN_ID`: Sinch service plan identifier
+- `SINCH_FROM_NUMBER`: Virtual phone number for sending SMS
+- `SINCH_WEBHOOK_SECRET`: Webhook signature verification
+- `REDIS_URL`: Redis connection string for rate limiting
+- `SMS_RATE_LIMIT`: Messages per window (default: 5)
+- `SMS_RATE_LIMIT_WINDOW`: Rate limit window in seconds (default: 60)
+- `SMS_RATE_LIMIT_BURST`: Burst limit per hour (default: 10)
+- `DEFAULT_PHONE_REGION`: Default region for phone parsing (default: US)
+- `DEBUG`: true/false
+- `LOG_LEVEL`: INFO/DEBUG
 
 ## Architecture
 
-### AI Layer
+### Conversation Layer
 
-claude ai handles conversation intelligence and book recommendations
+Claude handles conversation and book recommendations.
 
 ### Database Layer
 
-postgresql with async sqlalchemy for data persistence
-alembic for schema migrations
+PostgreSQL with async SQLAlchemy for data persistence.
+Alembic for schema migrations.
 
 ### API Layer
 
-fastapi with async endpoints
-hypercorn asgi server for production deployment
+FastAPI with async endpoints.
+Hypercorn ASGI server for production deployment.
 
 ### Personality System
 
-marty's personality defined in prompts/marty_system_prompt.md and prompts/marty_discord_system_prompt.md
-casual texting style with wizard references
+Marty's personality is defined in `prompts/marty_system_prompt.md` and `prompts/marty_discord_system_prompt.md`.
+Casual texting style with wizard references.
 
 ## Database Schema
 
-- customers: phone numbers and basic info
-- conversations: message threads with context
-- messages: individual texts with direction tracking
-- books: catalog from hardcover api
-- inventory: stock levels and availability
-- orders: purchases and fulfillment
+- **Customers**: Phone numbers and basic info
+- **Conversations**: Message threads with context
+- **Messages**: Individual texts with direction tracking
+- **Books**: Catalog from Hardcover API
+- **Inventory**: Stock levels and availability
+- **Orders**: Purchases and fulfillment
 
 ## Current Implementation Status
 
-implemented:
+Implemented:
 
-- fastapi application with async support
-- claude ai integration with conversation history and tool calling
-- database layer with migrations
-- hardcover api integration
-- comprehensive test suite
-- terminal chat interface
-- sms webhook handler with signature verification
-- sms provider integration with multi-message support
-- redis-based rate limiting with burst protection
-- phone number validation and normalization
-- discord bot integration with thread management
+- FastAPI application with async support
+- Conversation engine with history and book lookup
+- Database layer with migrations
+- Hardcover API integration
+- Comprehensive test suite
+- Terminal chat interface
+- SMS webhook handler with signature verification
+- SMS provider integration with multi-message support
+- Redis-based rate limiting with burst protection
+- Phone number validation and normalization
+- Discord bot integration with thread management
 
-in development:
+In development:
 
-- square api for payments
-- purchase flow
-- inventory management
+- Square API for payments
+- Purchase flow
+- Inventory management
 
 ## Troubleshooting
 
 ### Database Issues
 
 ```bash
-# test connection
+# Test connection
 just test-db
 
-# check environment
+# Check environment
 echo $DATABASE_URL
 
-# reset database
+# Reset database
 just db-reset
 ```
 
-### Claude AI Issues
+### Claude Issues
 
 ```bash
-# test integration (⚠️ costs money)
+# Test integration (⚠️ costs money)
 MARTY_ENABLE_REAL_API_TESTS=1 just smoke-test
 
-# check api key
+# Check API key
 echo $ANTHROPIC_API_KEY
 ```
 
@@ -461,49 +461,49 @@ If you see errors about `parallel: command not found` during CI or local runs, i
 ### Test Failures
 
 ```bash
-# run unit tests only (fast)
+# Run unit tests only (fast)
 just ci
 
-# verbose output
+# Verbose output
 just test-verbose
 
-# specific test with output
+# Specific test with output
 just test-file test_database.py
 
-# check if integration tests need infrastructure
+# Check if integration tests need infrastructure
 just test-integration
 ```
 
 ### CI/CD Issues
 
 ```bash
-# check pre-commit setup
+# Check pre-commit setup
 just pre-commit-run
 
-# verify all quality checks pass
+# Verify all quality checks pass
 just check-all
 
-# full CI pipeline
+# Full CI pipeline
 just ci-full
 ```
 
 ### Debug Mode
 
 ```bash
-# add to .env
+# Add to .env
 DEBUG=true
 LOG_LEVEL=DEBUG
 ```
 
 ## Contributing
 
-1. fork repository
-2. create feature branch
-3. make changes
-4. run quality checks: `just check-all`
-5. run tests: `just ci`
-6. commit (pre-commit hooks run automatically)
-7. submit pull request
+1. Fork repository
+2. Create feature branch
+3. Make changes
+4. Run quality checks: `just check-all`
+5. Run tests: `just ci`
+6. Commit (pre-commit hooks run automatically)
+7. Submit pull request
 
 **Development Workflow**:
 
