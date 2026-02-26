@@ -18,6 +18,7 @@ from src.database import (
     get_db_session,
 )
 from src.tools.base import BaseTool, ToolResult
+from src.tools.external.bookshop import BookshopClient
 from src.tools.external.hardcover import HardcoverAPIError, HardcoverTool
 
 logger = structlog.get_logger(__name__)
@@ -62,6 +63,7 @@ class BookEnricherTool(BaseTool):
     def __init__(self, hardcover_tool: HardcoverTool | None = None):
         super().__init__()
         self.hardcover_tool = hardcover_tool or HardcoverTool()
+        self.bookshop_client = BookshopClient()
         # Simple but effective ISBN pattern for ISBN-10 and ISBN-13
         self.isbn_pattern = re.compile(
             r"(?:ISBN[-:\s]*)?((?:97[89][-\s]?)?(?:\d[-\s]?){9,12}\d)", re.IGNORECASE
@@ -352,6 +354,12 @@ class BookEnricherTool(BaseTool):
                     logger.debug(f"Book already exists: {existing_book.title}")
                     return
 
+                # Resolve bookshop.org URL via ISBN validation
+                bookshop_url = await self.bookshop_client.resolve_link(
+                    book_data.get("editions", []),
+                    book_data.get("title", ""),
+                )
+
                 # Create new book
                 book_create = BookCreate(
                     title=book_data.get("title", ""),
@@ -363,6 +371,7 @@ class BookEnricherTool(BaseTool):
                     isbn=book_data.get("isbn"),
                     publisher=book_data.get("publisher"),
                     page_count=book_data.get("pages"),
+                    bookshop_url=bookshop_url,
                     price=None,  # Not available from Hardcover API
                     genre=None,  # Not available from Hardcover API
                     format=None,  # Not available from Hardcover API
