@@ -26,6 +26,15 @@ logger = structlog.get_logger(__name__)
 bookshop_client = BookshopClient()
 
 
+async def _resolve_bookshop_link(book: dict) -> None:
+    """Resolve and attach a bookshop.org link to a book dict."""
+    title = book.get("title", "")
+    if title:
+        book["bookshop_link"] = await bookshop_client.resolve_link(
+            book.get("editions", []), title
+        )
+
+
 class HardcoverAPIError(Exception):
     """Base exception for Hardcover API errors."""
 
@@ -1010,12 +1019,8 @@ class HardcoverTool(BaseTool):
             elif book.get("cached_contributors"):
                 book["author"] = book["cached_contributors"]
 
-            # Validate ISBNs against bookshop.org for direct affiliate links
-            title = book.get("title", "")
-            if title:
-                book["bookshop_link"] = await bookshop_client.resolve_link(
-                    book.get("editions", []), title
-                )
+        # Validate ISBNs against bookshop.org concurrently for all books
+        await asyncio.gather(*[_resolve_bookshop_link(book) for book in books])
 
         return books
 
@@ -1198,19 +1203,15 @@ class HardcoverTool(BaseTool):
             elif book.get("cached_contributors"):
                 book["author"] = book["cached_contributors"]
 
-            # Validate ISBNs against bookshop.org for direct affiliate links
-            title = book.get("title", "")
-            if title:
-                book["bookshop_link"] = await bookshop_client.resolve_link(
-                    book.get("editions", []), title
-                )
-
             # Truncate description for better presentation
             description = book.get("description", "")
             if description and len(description) > 200:
                 book["short_description"] = description[:200] + "..."
             else:
                 book["short_description"] = description
+
+        # Validate ISBNs against bookshop.org concurrently for all books
+        await asyncio.gather(*[_resolve_bookshop_link(book) for book in books])
 
         logger.info(
             f"Returning top {len(books)} recent releases sorted by reader count"
@@ -1305,17 +1306,14 @@ class HardcoverTool(BaseTool):
                 elif book.get("cached_contributors"):
                     book["author"] = book["cached_contributors"]
 
-                title = book.get("title", "")
-                if title:
-                    book["bookshop_link"] = await bookshop_client.resolve_link(
-                        book.get("editions", []), title
-                    )
-
                 description = book.get("description", "")
                 if description and len(description) > 200:
                     book["short_description"] = description[:200] + "..."
                 else:
                     book["short_description"] = description
+
+            # Validate ISBNs against bookshop.org concurrently for all books
+            await asyncio.gather(*[_resolve_bookshop_link(book) for book in books])
 
             logger.info(f"Found {len(books)} books released in last {days} days")
             return books
