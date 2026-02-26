@@ -164,7 +164,7 @@ Return ONLY a JSON object with this exact structure:
 
         try:
             response = await self.claude_client.messages.create(
-                model="claude-3-5-sonnet-latest",
+                model="claude-sonnet-4-6",
                 max_tokens=400,
                 temperature=0.1,  # Low temperature for consistent structured output
                 messages=[{"role": "user", "content": optimization_prompt}],

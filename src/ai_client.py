@@ -120,7 +120,7 @@ async def generate_ai_response(
         # Generate response with Claude including tools
         logger.debug(f"Calling Claude API with {len(messages)} messages")
         response = await client.messages.create(
-            model="claude-3-5-sonnet-latest",
+            model="claude-sonnet-4-6",
             max_tokens=500,
             temperature=0.7,
             system=system_prompt,
@@ -248,7 +248,7 @@ async def generate_ai_response(
                 )
 
                 final_response = await client.messages.create(
-                    model="claude-3-5-sonnet-latest",
+                    model="claude-sonnet-4-6",
                     max_tokens=500,
                     temperature=0.7,
                     system=system_prompt,
@@ -294,7 +294,7 @@ async def generate_ai_response(
                     # Fallback: try to generate a response without tools
                     logger.debug("Attempting fallback response without tools")
                     fallback_response = await client.messages.create(
-                        model="claude-3-5-sonnet-latest",
+                        model="claude-sonnet-4-6",
                         max_tokens=500,
                         temperature=0.7,
                         system=system_prompt,

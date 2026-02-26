@@ -341,7 +341,7 @@ class TestGenerateAIResponse:
         await generate_ai_response("Hello", [])
 
         call_args = mock_claude_api.messages.create.call_args
-        assert call_args[1]["model"] == "claude-3-5-sonnet-latest"
+        assert call_args[1]["model"] == "claude-sonnet-4-6"
         assert call_args[1]["max_tokens"] == 500
         assert call_args[1]["temperature"] == 0.7
         assert "system" in call_args[1]
