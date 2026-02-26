@@ -22,6 +22,15 @@ class BookshopClient:
     BASE_URL = "https://bookshop.org"
     REQUEST_TIMEOUT = 3.0  # seconds
 
+    def __init__(self) -> None:
+        self._client: httpx.AsyncClient | None = None
+
+    def _get_client(self) -> httpx.AsyncClient:
+        """Return a shared httpx.AsyncClient, creating one if needed."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=self.REQUEST_TIMEOUT)
+        return self._client
+
     async def validate_isbn(self, isbn: str) -> bool:
         """Validate an ISBN against bookshop.org.
 
@@ -29,12 +38,12 @@ class BookshopClient:
         is valid; anything else (404, timeout, error) means invalid.
         """
         try:
-            async with httpx.AsyncClient(timeout=self.REQUEST_TIMEOUT) as client:
-                response = await client.head(
-                    f"{self.BASE_URL}/book/{isbn}",
-                    follow_redirects=False,
-                )
-                return response.status_code == 308
+            client = self._get_client()
+            response = await client.head(
+                f"{self.BASE_URL}/book/{isbn}",
+                follow_redirects=False,
+            )
+            return response.status_code == 308
         except httpx.TimeoutException:
             logger.warning("bookshop_isbn_validation_timeout", isbn=isbn)
             return False
