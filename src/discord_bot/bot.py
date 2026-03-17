@@ -224,7 +224,6 @@ class MartyBot(commands.Bot):
                         conversation_id=conversation.id,
                         direction="inbound",
                         content=user_message,
-                        status="received",
                     )
                     await add_message(db, incoming_message)
 
@@ -253,7 +252,6 @@ class MartyBot(commands.Bot):
                         user_message=user_message,
                         conversation_history=conversation_history,
                         customer_context=customer_context,
-                        platform="discord",
                     )
 
                     # Save the response message to database
@@ -261,7 +259,6 @@ class MartyBot(commands.Bot):
                         conversation_id=conversation.id,
                         direction="outbound",
                         content=ai_response,
-                        status="sent",
                     )
                     await add_message(db, response_message)
 

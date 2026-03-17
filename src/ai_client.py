@@ -31,15 +31,9 @@ class ConversationMessage(BaseModel):
     timestamp: datetime
 
 
-def load_system_prompt(prompt_file: str | Path | None = None) -> str:
-    """Load the system prompt from the prompts directory, robust to invocation context."""
-    if prompt_file is None:
-        prompt_path = (
-            Path(__file__).parent.parent / "prompts" / "marty_system_prompt.md"
-        )
-    else:
-        prompt_path = Path(prompt_file)
-
+def load_system_prompt() -> str:
+    """Load the system prompt from the prompts directory."""
+    prompt_path = Path(__file__).parent.parent / "prompts" / "marty_system_prompt.md"
     try:
         return prompt_path.read_text(encoding="utf-8").strip()
     except FileNotFoundError:
@@ -47,7 +41,6 @@ def load_system_prompt(prompt_file: str | Path | None = None) -> str:
         return "You are Marty, a helpful AI assistant who works at Dungeon Books. Help customers find great books!"
 
 
-# Load Marty's character prompt from file
 MARTY_SYSTEM_PROMPT = load_system_prompt()
 
 
@@ -55,7 +48,6 @@ async def generate_ai_response(
     user_message: str,
     conversation_history: list[ConversationMessage],
     customer_context: dict | None = None,
-    platform: str = "sms",
 ) -> tuple[str, list[dict]]:
     """
     Generate an AI response using Claude.
@@ -79,17 +71,7 @@ async def generate_ai_response(
         # Add the current user message
         messages.append({"role": "user", "content": user_message})
 
-        # Load platform-specific system prompt
-        if platform == "discord":
-            system_prompt = load_system_prompt(
-                Path(__file__).parent.parent
-                / "prompts"
-                / "marty_discord_system_prompt.md"
-            )
-            logger.debug(f"Loaded Discord system prompt, length: {len(system_prompt)}")
-        else:
-            system_prompt = MARTY_SYSTEM_PROMPT
-            logger.debug(f"Loaded SMS system prompt, length: {len(system_prompt)}")
+        system_prompt = MARTY_SYSTEM_PROMPT
         if customer_context:
             context_info = []
 

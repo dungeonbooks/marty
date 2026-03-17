@@ -1,5 +1,5 @@
 """
-CRUD operations for Marty SMS Bookstore Chatbot.
+CRUD operations for Marty Bookstore Chatbot.
 Provides async database operations for all models.
 """
 
@@ -240,8 +240,6 @@ class MessageCRUD:
             conversation_id=message.conversation_id,
             direction=message.direction,
             content=message.content,
-            message_id=message.message_id,
-            status=message.status,
         )
         db.add(db_message)
         await db.commit()
@@ -278,21 +276,6 @@ class MessageCRUD:
         )
         result = await db.execute(stmt)
         return result.scalars().all()
-
-    @staticmethod
-    async def update_status(
-        db: AsyncSession, message_id: str, status: str
-    ) -> Message | None:
-        """Update message status."""
-        stmt = (
-            update(Message)
-            .where(Message.id == message_id)
-            .values(status=status)
-            .returning(Message)
-        )
-        result = await db.execute(stmt)
-        await db.commit()
-        return result.scalar_one_or_none()
 
 
 class BookCRUD:

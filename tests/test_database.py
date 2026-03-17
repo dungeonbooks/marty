@@ -282,7 +282,6 @@ class TestMessageCRUD:
             conversation_id=sample_conversation.id,
             direction="inbound",
             content="Hello, I'm looking for a book!",
-            status="pending",
         )
 
         message = await MessageCRUD.create(db_session, message_data)
@@ -291,7 +290,6 @@ class TestMessageCRUD:
         assert message.conversation_id == sample_conversation.id
         assert message.direction == "inbound"
         assert message.content == "Hello, I'm looking for a book!"
-        assert message.status == "pending"
         assert message.timestamp is not None
 
     @pytest.mark.asyncio
@@ -305,7 +303,6 @@ class TestMessageCRUD:
                 conversation_id=sample_conversation.id,
                 direction="inbound" if i % 2 == 0 else "outbound",
                 content=f"Message {i}",
-                status="sent",
             )
             await MessageCRUD.create(db_session, message_data)
 
@@ -315,26 +312,6 @@ class TestMessageCRUD:
 
         assert len(messages) == 3
         assert messages[0].content == "Message 0"  # Should be ordered by timestamp
-
-    @pytest.mark.asyncio
-    async def test_update_message_status(
-        self, db_session: AsyncSession, sample_conversation: Conversation
-    ):
-        """Test updating message status."""
-        message_data = MessageCreate(
-            conversation_id=sample_conversation.id,
-            direction="outbound",
-            content="Test message",
-            status="pending",
-        )
-        message = await MessageCRUD.create(db_session, message_data)
-
-        updated_message = await MessageCRUD.update_status(
-            db_session, message.id, "sent"
-        )
-
-        assert updated_message is not None
-        assert updated_message.status == "sent"
 
 
 class TestBookCRUD:

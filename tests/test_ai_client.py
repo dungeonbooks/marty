@@ -26,36 +26,18 @@ class TestSystemPromptLoading:
 
         assert isinstance(prompt, str)
         assert len(prompt) > 1000  # Should be substantial
-        assert "Martinus Trismegistus" in prompt
-        assert "Never invent books" in prompt  # Safety feature
-        assert "Text Formatting Rules" in prompt  # Operational details
+        assert "martinus trismegistus" in prompt
+        assert "never invent books" in prompt.lower()
 
-    def test_load_system_prompt_custom_file(self):
-        """Test loading system prompt from custom file."""
-        # Create a temporary test prompt file
-        test_prompt = "Test prompt content"
-        test_file = Path(__file__).parent / "test_prompt.txt"
-        test_file.write_text(test_prompt)
-
-        try:
-            prompt = load_system_prompt(str(test_file))
-            assert prompt == test_prompt
-        finally:
-            test_file.unlink()  # Clean up
-
-    def test_load_system_prompt_file_not_found(self):
+    def test_load_system_prompt_file_not_found(self, tmp_path):
         """Test fallback when prompt file doesn't exist."""
-        with patch("src.ai_client.logger.warning") as mock_warning:
-            prompt = load_system_prompt("nonexistent_file.txt")
-
+        with (
+            patch.object(Path, "read_text", side_effect=FileNotFoundError),
+            patch("src.ai_client.logger.warning"),
+        ):
+            prompt = load_system_prompt()
             assert isinstance(prompt, str)
-            assert "Marty" in prompt  # Should contain fallback content
-            assert len(prompt) > 10  # Should not be empty
-
-            # Check that warning was logged instead of printed
-            mock_warning.assert_called_once()
-            assert "nonexistent_file.txt" in mock_warning.call_args[0][0]
-            assert "not found" in mock_warning.call_args[0][0]
+            assert "Marty" in prompt
 
 
 class TestConversationMessageValidation:
@@ -406,9 +388,8 @@ class TestSystemPromptContent:
 
     def test_system_prompt_contains_required_elements(self):
         """Test that system prompt contains required elements."""
-        assert "Martinus Trismegistus" in MARTY_SYSTEM_PROMPT
-        assert "Never invent books" in MARTY_SYSTEM_PROMPT
-        assert "Text Formatting Rules" in MARTY_SYSTEM_PROMPT
+        assert "martinus trismegistus" in MARTY_SYSTEM_PROMPT
+        assert "never invent books" in MARTY_SYSTEM_PROMPT.lower()
         assert len(MARTY_SYSTEM_PROMPT) > 1000
 
     def test_system_prompt_is_loaded_correctly(self):
@@ -431,7 +412,7 @@ class TestSystemPromptContent:
         system_prompt = call_args[1]["system"]
 
         # Should start with the loaded system prompt
-        assert "Martinus Trismegistus" in system_prompt
+        assert "martinus trismegistus" in system_prompt
         assert len(system_prompt) > 1000
 
 

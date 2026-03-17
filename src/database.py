@@ -100,16 +100,12 @@ class Customer(Base):
     )
     name: Mapped[str | None] = mapped_column(Text, nullable=True)
     email: Mapped[str | None] = mapped_column(Text, nullable=True)
-    opted_out: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-
     # Discord fields
     discord_user_id: Mapped[str | None] = mapped_column(
         String(255), unique=True, nullable=True, index=True
     )
     discord_username: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    platform: Mapped[str] = mapped_column(
-        String(50), default="sms", nullable=False
-    )  # 'sms', 'discord', 'both'
+    platform: Mapped[str] = mapped_column(String(50), default="discord", nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
@@ -141,9 +137,7 @@ class Conversation(Base):
     )
     discord_channel_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     discord_guild_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    platform: Mapped[str] = mapped_column(
-        String(50), default="sms", nullable=False
-    )  # 'sms', 'discord'
+    platform: Mapped[str] = mapped_column(String(50), default="discord", nullable=False)
     status: Mapped[str] = mapped_column(
         String(50), default="active"
     )  # active, ended, timeout
@@ -183,12 +177,6 @@ class Message(Base):
     timestamp: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
-
-    # SMS metadata
-    message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    status: Mapped[str] = mapped_column(
-        String(50), default="pending"
-    )  # pending, sent, delivered, failed
 
     # Relationships
     conversation: Mapped["Conversation"] = relationship(
@@ -377,14 +365,13 @@ class CustomerCreate(BaseModel):
     square_customer_id: str | None = Field(None, max_length=100)
     discord_user_id: str | None = Field(None, max_length=255)
     discord_username: str | None = Field(None, max_length=255)
-    platform: str = Field("sms", max_length=50)
+    platform: str = Field("discord", max_length=50)
 
 
 class CustomerUpdate(BaseModel):
     name: str | None = None
     email: str | None = None
     square_customer_id: str | None = Field(None, max_length=100)
-    opted_out: bool | None = None
     discord_user_id: str | None = Field(None, max_length=255)
     discord_username: str | None = Field(None, max_length=255)
     platform: str | None = Field(None, max_length=50)
@@ -398,7 +385,6 @@ class CustomerResponse(BaseModel):
     name: str | None = None
     email: str | None = None
     square_customer_id: str | None = None
-    opted_out: bool
     discord_user_id: str | None = None
     discord_username: str | None = None
     platform: str
@@ -412,7 +398,7 @@ class ConversationCreate(BaseModel):
     discord_user_id: str | None = None
     discord_channel_id: str | None = None
     discord_guild_id: str | None = None
-    platform: str = "sms"
+    platform: str = "discord"
     status: str = "active"
     context: dict[str, Any] | None = None
     mentioned_books: list[str] | None = None
@@ -448,8 +434,6 @@ class MessageCreate(BaseModel):
     conversation_id: str
     direction: str = Field(..., pattern="^(inbound|outbound)$")
     content: str = Field(..., min_length=1)
-    message_id: str | None = None
-    status: str = "pending"
 
 
 class MessageResponse(BaseModel):
@@ -460,8 +444,6 @@ class MessageResponse(BaseModel):
     direction: str
     content: str
     timestamp: datetime
-    message_id: str | None = None
-    status: str
 
 
 class BookCreate(BaseModel):
