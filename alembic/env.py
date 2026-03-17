@@ -1,9 +1,12 @@
 import os
 from logging.config import fileConfig
 
+from dotenv import load_dotenv
 from sqlalchemy import engine_from_config, pool
 
 from alembic import context
+
+load_dotenv()
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -64,18 +67,18 @@ def run_migrations_online() -> None:
     """
     configuration = config.get_section(config.config_ini_section, {})
 
-    # Force pg8000 dialect for PostgreSQL URLs (sync driver for migrations)
+    # Ensure URL is in configuration dict and use correct sync drivers
     url = configuration.get("sqlalchemy.url") or config.get_main_option(
         "sqlalchemy.url"
     )
-    if url and url.startswith("postgres://"):
-        configuration["sqlalchemy.url"] = url.replace(
-            "postgres://", "postgresql+pg8000://", 1
-        )
-    elif url and url.startswith("postgresql://"):
-        configuration["sqlalchemy.url"] = url.replace(
-            "postgresql://", "postgresql+pg8000://", 1
-        )
+    if url:
+        if url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql+pg8000://", 1)
+        elif url.startswith("postgresql://"):
+            url = url.replace("postgresql://", "postgresql+pg8000://", 1)
+        elif "aiosqlite" in url:
+            url = url.replace("sqlite+aiosqlite", "sqlite", 1)
+        configuration["sqlalchemy.url"] = url
 
     connectable = engine_from_config(
         configuration,
