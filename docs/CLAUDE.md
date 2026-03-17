@@ -1,7 +1,7 @@
 # Marty - AI Bookstore Chatbot
 
 ## Project Overview
-Python 3.13+ FastAPI application for AI bookstore chatbot. Uses Claude AI, PostgreSQL, Hardcover API. SMS & Discord interfaces.
+Python 3.13+ FastAPI application for AI bookstore chatbot. Uses Claude AI, PostgreSQL, Hardcover API. Discord interface.
 
 ## Dependency Management
 **CRITICAL: Always use `uv` (NEVER pip):**
