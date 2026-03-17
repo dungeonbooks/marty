@@ -72,12 +72,14 @@ def run_migrations_online() -> None:
         "sqlalchemy.url"
     )
     if url:
-        if url.startswith("postgres://"):
-            url = url.replace("postgres://", "postgresql+pg8000://", 1)
+        if "aiosqlite" in url:
+            url = url.replace("sqlite+aiosqlite", "sqlite", 1)
+        elif url.startswith("postgresql+asyncpg://"):
+            url = url.replace("postgresql+asyncpg://", "postgresql+pg8000://", 1)
         elif url.startswith("postgresql://"):
             url = url.replace("postgresql://", "postgresql+pg8000://", 1)
-        elif "aiosqlite" in url:
-            url = url.replace("sqlite+aiosqlite", "sqlite", 1)
+        elif url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql+pg8000://", 1)
         configuration["sqlalchemy.url"] = url
 
     connectable = engine_from_config(
