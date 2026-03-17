@@ -42,6 +42,9 @@ class Config:
     # Bookshop.org Affiliate Integration
     BOOKSHOP_AFFILIATE_ID: str = os.getenv("BOOKSHOP_AFFILIATE_ID", "108216")
 
+    # Conversation
+    CONVERSATION_HISTORY_LIMIT: int = int(os.getenv("CONVERSATION_HISTORY_LIMIT", "10"))
+
     # SMS Configuration
     SMS_MULTI_MESSAGE_ENABLED: bool = (
         os.getenv("SMS_MULTI_MESSAGE_ENABLED", "true").lower() == "true"

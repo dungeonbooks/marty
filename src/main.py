@@ -11,6 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai_client import ConversationMessage, generate_ai_response
+from src.config import config as app_config
 from src.database import (
     ConversationCreate,
     CustomerCreate,
@@ -255,7 +256,9 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
             conversation = await create_conversation(db, conversation_data)
 
         # Get conversation history FIRST (before saving new message)
-        messages = await get_conversation_messages(db, conversation.id, limit=10)
+        messages = await get_conversation_messages(
+            db, conversation.id, limit=app_config.CONVERSATION_HISTORY_LIMIT
+        )
         conversation_history = [
             ConversationMessage(
                 role="user" if msg.direction == "inbound" else "assistant",

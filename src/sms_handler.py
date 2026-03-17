@@ -291,7 +291,7 @@ async def process_incoming_sms(payload: SinchSMSWebhookPayload) -> None:
 
             # Get recent conversation history FIRST (before saving new message)
             recent_messages = await get_conversation_messages(
-                db, conversation.id, limit=10
+                db, conversation.id, limit=config.CONVERSATION_HISTORY_LIMIT
             )
 
             # Convert to ConversationMessage format (reverse for chronological order)
