@@ -594,7 +594,6 @@ class TestDatabaseIntegration:
             conversation_id=sample_conversation.id,
             direction="inbound",
             content="Test message",
-            status="sent",
         )
         message = await MessageCRUD.create(db_session, message_data)
 
