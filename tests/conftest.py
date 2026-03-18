@@ -1,5 +1,5 @@
 """
-Test configuration for Marty SMS Bot.
+Test configuration for Marty Bot.
 Ensures test isolation and prevents accidental use of production services.
 
 CRITICAL: All tests must mock Claude/Anthropic API calls to prevent:

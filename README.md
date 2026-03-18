@@ -1,19 +1,18 @@
-# Marty - Dungeon Books SMS & Discord Chatbot
+# Marty - Dungeon Books Discord Bot
 
 [![Railway Deployment](https://img.shields.io/badge/Railway-Deployed-brightgreen)](https://railway.com/project/9ae0f484-5538-4866-9757-a6931049b1e9?environmentId=dddc87ce-de5b-4928-8e27-3c40c088ef05)
 
-A chatbot that recommends books and chats with customers via SMS and Discord.
+A Discord chatbot that recommends books and chats with customers.
 
 Marty is a burnt-out wizard who used to do software engineering and now works at Dungeon Books. He's genuinely magical but completely casual about it.
 
 ## What It Does
 
-- Chat with customers about books via SMS and Discord
+- Chat with customers about books via Discord
 - Give personalized book recommendations
 - Remember conversation history
 - Integrate with Hardcover API for book data
 - Handle customer info and orders (eventually)
-- Send responses that sound like a real person texting
 
 **Mention `@marty` to chat in a thread**
 
@@ -35,6 +34,7 @@ Marty is a burnt-out wizard who used to do software engineering and now works at
 - Claude for conversations
 - PostgreSQL with SQLAlchemy
 - Hardcover API for book data
+- Discord.py for bot integration
 - pytest for testing
 - Ruff for code quality
 - ty for type checking
@@ -50,7 +50,7 @@ Marty is a burnt-out wizard who used to do software engineering and now works at
 - Redis server (for rate limiting and caching)
 - Anthropic API key
 - Hardcover API token
-- Sinch SMS API credentials
+- Discord bot token
 
 ## Setup
 
@@ -90,10 +90,8 @@ Required environment variables:
 DATABASE_URL=postgresql+asyncpg://user:password@host:5432/dbname
 ANTHROPIC_API_KEY=your_claude_api_key_here
 HARDCOVER_API_TOKEN=Bearer your_hardcover_token_here
-SINCH_API_TOKEN=your_sinch_api_token
-SINCH_SERVICE_PLAN_ID=your_service_plan_id
-SINCH_FROM_NUMBER=your_virtual_phone_number
-SINCH_WEBHOOK_SECRET=your_webhook_secret
+DISCORD_BOT_TOKEN=your_discord_bot_token_here
+DISCORD_APP_ID=your_discord_application_id_here
 REDIS_URL=redis://localhost:6379/0
 ```
 
@@ -122,7 +120,7 @@ alembic upgrade head
 # Test database connection
 python src/database.py
 
-# Comprehensive integration test (⚠️ makes real API calls - costs money)
+# Comprehensive integration test (makes real API calls - costs money)
 uv run python scripts/smoke_test.py
 ```
 
@@ -151,31 +149,6 @@ GET /health
 ```
 
 Returns database connectivity and system status.
-
-### SMS Webhook
-
-```
-POST /webhook/sms
-```
-
-Request:
-
-```json
-{
-  "From": "+1234567890",
-  "Text": "looking for a good fantasy book",
-  "MessageUUID": "unique-id"
-}
-```
-
-Response:
-
-```json
-{
-  "status": "received",
-  "message_id": "uuid"
-}
-```
 
 ### Chat Interface (for testing)
 
@@ -212,17 +185,9 @@ Response:
 just chat
 ```
 
-Terminal chat interface for testing responses without the SMS pipeline.
+Terminal chat interface for testing responses.
 
-**SMS Testing** (⚠️ uses real API):
-
-```bash
-just sms
-```
-
-Interactive SMS testing interface for sending real SMS messages and testing webhook processing. Requires Sinch API credentials.
-
-**Integration Testing** (⚠️ costs money):
+**Integration Testing** (costs money):
 
 ```bash
 # Enable real API calls and run smoke test
@@ -356,21 +321,20 @@ Add to .env as `ANTHROPIC_API_KEY`.
 Request access at hardcover.app/api.
 Add token as `HARDCOVER_API_TOKEN=Bearer your_token`.
 
+### Discord Bot
+
+Create a bot at discord.com/developers/applications.
+Add token as `DISCORD_BOT_TOKEN`.
+
 ### Environment Variables
 
 - `DATABASE_URL`: PostgreSQL connection string
 - `ANTHROPIC_API_KEY`: Anthropic API key
 - `HARDCOVER_API_TOKEN`: Book data API token
+- `DISCORD_BOT_TOKEN`: Discord bot token
+- `DISCORD_APP_ID`: Discord application ID
 - `BOOKSHOP_AFFILIATE_ID`: Optional affiliate links
-- `SINCH_API_TOKEN`: Sinch API token for SMS sending
-- `SINCH_SERVICE_PLAN_ID`: Sinch service plan identifier
-- `SINCH_FROM_NUMBER`: Virtual phone number for sending SMS
-- `SINCH_WEBHOOK_SECRET`: Webhook signature verification
 - `REDIS_URL`: Redis connection string for rate limiting
-- `SMS_RATE_LIMIT`: Messages per window (default: 5)
-- `SMS_RATE_LIMIT_WINDOW`: Rate limit window in seconds (default: 60)
-- `SMS_RATE_LIMIT_BURST`: Burst limit per hour (default: 10)
-- `DEFAULT_PHONE_REGION`: Default region for phone parsing (default: US)
 - `DEBUG`: true/false
 - `LOG_LEVEL`: INFO/DEBUG
 
@@ -392,14 +356,14 @@ Hypercorn ASGI server for production deployment.
 
 ### Personality System
 
-Marty's personality is defined in `prompts/marty_system_prompt.md` and `prompts/marty_discord_system_prompt.md`.
+Marty's personality is defined in `prompts/marty_system_prompt.md`.
 Casual texting style with wizard references.
 
 ## Database Schema
 
-- **Customers**: Phone numbers and basic info
+- **Customers**: Discord users and basic info (phone/email for Square)
 - **Conversations**: Message threads with context
-- **Messages**: Individual texts with direction tracking
+- **Messages**: Individual messages with direction tracking
 - **Books**: Catalog from Hardcover API
 - **Inventory**: Stock levels and availability
 - **Orders**: Purchases and fulfillment
@@ -414,10 +378,6 @@ Implemented:
 - Hardcover API integration
 - Comprehensive test suite
 - Terminal chat interface
-- SMS webhook handler with signature verification
-- SMS provider integration with multi-message support
-- Redis-based rate limiting with burst protection
-- Phone number validation and normalization
 - Discord bot integration with thread management
 
 In development:
@@ -444,7 +404,7 @@ just db-reset
 ### Claude Issues
 
 ```bash
-# Test integration (⚠️ costs money)
+# Test integration (costs money)
 MARTY_ENABLE_REAL_API_TESTS=1 just smoke-test
 
 # Check API key

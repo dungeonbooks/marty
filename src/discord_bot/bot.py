@@ -8,6 +8,7 @@ from discord import app_commands  # type: ignore
 from discord.ext import commands  # type: ignore
 
 from ..ai_client import ConversationMessage, generate_ai_response
+from ..config import config
 from ..database import (
     ConversationCreate,
     CustomerCreate,
@@ -200,7 +201,7 @@ class MartyBot(commands.Bot):
 
                     # Get recent conversation history FIRST (before saving new message)
                     recent_messages = await get_conversation_messages(
-                        db, conversation.id, limit=6
+                        db, conversation.id, limit=config.CONVERSATION_HISTORY_LIMIT
                     )
 
                     # Convert to ConversationMessage format (reverse for chronological order)
@@ -223,7 +224,6 @@ class MartyBot(commands.Bot):
                         conversation_id=conversation.id,
                         direction="inbound",
                         content=user_message,
-                        status="received",
                     )
                     await add_message(db, incoming_message)
 
@@ -252,7 +252,6 @@ class MartyBot(commands.Bot):
                         user_message=user_message,
                         conversation_history=conversation_history,
                         customer_context=customer_context,
-                        platform="discord",
                     )
 
                     # Save the response message to database
@@ -260,7 +259,6 @@ class MartyBot(commands.Bot):
                         conversation_id=conversation.id,
                         direction="outbound",
                         content=ai_response,
-                        status="sent",
                     )
                     await add_message(db, response_message)
 

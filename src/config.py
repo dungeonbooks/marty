@@ -19,11 +19,6 @@ class Config:
     # Database
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./marty.db")
 
-    # Sinch SMS Configuration
-    SINCH_SERVICE_PLAN_ID: str | None = os.getenv("SINCH_SERVICE_PLAN_ID")
-    SINCH_API_TOKEN: str | None = os.getenv("SINCH_API_TOKEN")
-    SINCH_API_URL: str = os.getenv("SINCH_API_URL", "https://us.sms.api.sinch.com")
-
     # Hardcover API Configuration
     HARDCOVER_API_TOKEN: str | None = os.getenv("HARDCOVER_API_TOKEN")
     HARDCOVER_API_URL: str = os.getenv(
@@ -42,24 +37,8 @@ class Config:
     # Bookshop.org Affiliate Integration
     BOOKSHOP_AFFILIATE_ID: str = os.getenv("BOOKSHOP_AFFILIATE_ID", "108216")
 
-    # SMS Configuration
-    SMS_MULTI_MESSAGE_ENABLED: bool = (
-        os.getenv("SMS_MULTI_MESSAGE_ENABLED", "true").lower() == "true"
-    )
-    SMS_MESSAGE_DELAY: float = float(
-        os.getenv("SMS_MESSAGE_DELAY", "0.5")
-    )  # seconds between messages
-    DEFAULT_PHONE_REGION: str = os.getenv("DEFAULT_PHONE_REGION", "US")
-
-    # 10DLC Compliance Messages
-    STOP_CONFIRMATION_MESSAGE: str = os.getenv(
-        "STOP_CONFIRMATION_MESSAGE",
-        "Dungeon Books: You have unsubscribed and will no longer receive messages. Reply HELP for help.",
-    )
-    HELP_RESPONSE_MESSAGE: str = os.getenv(
-        "HELP_RESPONSE_MESSAGE",
-        "Dungeon Books: For help, contact hello@dungeonbooks.com or reply STOP to unsubscribe. Msg&data rates may apply.",
-    )
+    # Conversation
+    CONVERSATION_HISTORY_LIMIT: int = int(os.getenv("CONVERSATION_HISTORY_LIMIT", "10"))
 
     @classmethod
     def validate_hardcover_setup(cls) -> bool:
@@ -89,7 +68,7 @@ class Config:
         return {
             "Authorization": cls.HARDCOVER_API_TOKEN,
             "Content-Type": "application/json",
-            "User-Agent": "Marty-SMS-Bot/1.0 (Book recommendation bot)",
+            "User-Agent": "Marty-Bot/1.0 (Book recommendation bot)",
         }
 
 

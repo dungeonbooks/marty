@@ -90,13 +90,13 @@ await client.close()
 💾 Full schema saved to 'hardcover_schema.json'
 ```
 
-## Integration with Marty SMS Bot:
+## Integration with Marty Bot:
 
 The Hardcover client is designed to work with Claude AI for book recommendations:
 
 1. **Claude AI** generates book recommendations based on user conversation
 2. **Hardcover Client** verifies book existence and provides detailed metadata
-3. **SMS Bot** combines both for rich, verified book recommendations
+3. **Discord Bot** combines both for rich, verified book recommendations
 4. **Purchase Flow** uses Hardcover data for inventory and affiliate links
 
 ## Environment Configuration:

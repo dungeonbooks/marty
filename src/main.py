@@ -11,6 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai_client import ConversationMessage, generate_ai_response
+from src.config import config as app_config
 from src.database import (
     ConversationCreate,
     CustomerCreate,
@@ -26,7 +27,6 @@ from src.database import (
     init_db,
 )
 from src.discord_bot.bot import create_bot
-from src.sms_handler import router as sms_router
 
 
 def rename_event_to_message(logger, method_name, event_dict):
@@ -71,15 +71,6 @@ def validate_environment_variables() -> None:
         "HARDCOVER_API_TOKEN",
     ]
 
-    # SMS-specific validation (only if SMS features are enabled)
-    sms_enabled = os.getenv("SMS_MULTI_MESSAGE_ENABLED", "true").lower() == "true"
-    if sms_enabled:
-        sms_required_vars = [
-            "SINCH_API_TOKEN",
-            "SINCH_SERVICE_PLAN_ID",
-        ]
-        required_vars.extend(sms_required_vars)
-
     missing_vars = []
     for var in required_vars:
         if not os.getenv(var):
@@ -96,8 +87,6 @@ def validate_environment_variables() -> None:
     logger.info(
         f"Hardcover API key configured: {bool(os.getenv('HARDCOVER_API_TOKEN'))}"
     )
-    if sms_enabled:
-        logger.info(f"SMS features enabled: {bool(os.getenv('SINCH_API_TOKEN'))}")
 
 
 @asynccontextmanager
@@ -161,13 +150,11 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Marty - Dungeon Books SMS Wizard",
+    title="Marty - Dungeon Books Discord Bot",
     version="0.1.0",
-    description="AI-powered SMS chatbot for book recommendations and purchases",
+    description="AI-powered Discord chatbot for book recommendations",
     lifespan=lifespan,
 )
-
-app.include_router(sms_router)
 
 
 @app.get("/health")
@@ -255,7 +242,9 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
             conversation = await create_conversation(db, conversation_data)
 
         # Get conversation history FIRST (before saving new message)
-        messages = await get_conversation_messages(db, conversation.id, limit=10)
+        messages = await get_conversation_messages(
+            db, conversation.id, limit=app_config.CONVERSATION_HISTORY_LIMIT
+        )
         conversation_history = [
             ConversationMessage(
                 role="user" if msg.direction == "inbound" else "assistant",
