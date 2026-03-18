@@ -80,6 +80,7 @@ class MartyBot(commands.Bot):
         intents = discord.Intents.default()  # type: ignore
         intents.message_content = True
         super().__init__(command_prefix="!", intents=intents)
+        self._renamed_threads: set[int] = set()
 
         # Initialize Hardcover API tool
         try:
@@ -354,9 +355,18 @@ class MartyBot(commands.Bot):
             if tool_name == "rename_thread" and result and result.success:
                 try:
                     thread_name = result.data.get("thread_name")
-                    if thread_name and hasattr(thread, "edit"):
-                        await thread.edit(name=thread_name)
-                        logger.info(f"Renamed thread to '{thread_name}' for {username}")
+                    thread_id = getattr(thread, "id", None)
+                    if thread_name and hasattr(thread, "edit") and thread_id:
+                        if thread_id in self._renamed_threads:
+                            logger.debug(
+                                f"Skipping thread rename (already renamed) for {username}"
+                            )
+                        else:
+                            await thread.edit(name=thread_name)
+                            self._renamed_threads.add(thread_id)
+                            logger.info(
+                                f"Renamed thread to '{thread_name}' for {username}"
+                            )
                 except Exception as e:
                     logger.warning(f"Failed to rename thread: {e}")
 
@@ -378,11 +388,13 @@ class MartyBot(commands.Bot):
         # Handle different Hardcover actions that return book data
         books_data = []
 
-        if action in ["search_books", "get_books_by_ids"]:
-            # These return a list of books
+        if action == "search_books":
+            # Only embed the top result — Claude's recommendation text covers the rest
+            data = result.data if isinstance(result.data, list) else []
+            books_data = data[:1]
+        elif action == "get_books_by_ids":
             books_data = result.data if isinstance(result.data, list) else []
         elif action == "get_book_by_id":
-            # This returns a single book
             if isinstance(result.data, dict):
                 books_data = [result.data]
 
