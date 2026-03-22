@@ -23,6 +23,7 @@ from ..database import (
 )
 from ..tools.external.hardcover import HardcoverTool
 from .embeds import create_book_embed, create_recent_releases_embed
+from .mtg import CardsCog
 
 logger = logging.getLogger(__name__)
 
@@ -497,6 +498,11 @@ def create_bot() -> MartyBot:
 
         await interaction.followup.send(embed=embed)
         logger.info("Sent recent releases via /recent slash command")
+
+    async def setup():
+        await bot.add_cog(CardsCog(bot))
+
+    bot.setup_hook = setup
 
     return bot
 
