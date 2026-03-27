@@ -14,6 +14,14 @@ MANA_EMOJI_NAMES = {
     "G": "manag",
     "C": "manac",
     "T": "manat",
+    "X": "manax",
+    "0": "mana0",
+    "1": "mana1",
+    "2": "mana2",
+    "3": "mana3",
+    "4": "mana4",
+    "5": "mana5",
+    "6": "mana6",
 }
 
 

@@ -6,6 +6,7 @@ import pytest
 from src.tools.scryfall.cards import (
     Card,
     RateLimiter,
+    _parse_query,
     get_scryfall_data,
 )
 
@@ -133,6 +134,29 @@ class TestCard:
         assert card.name == "Swamp"
         assert card.mana_cost == ""
         assert card.type_line == "Basic Land — Swamp"
+
+
+class TestParseQuery:
+    """Test cases for the _parse_query function."""
+
+    def test_plain_card_name(self):
+        assert _parse_query("Lightning Bolt") == ("Lightning Bolt", None, None)
+
+    def test_card_with_set_pipe(self):
+        assert _parse_query("Wrath of God|C13") == ("Wrath of God", "c13", None)
+
+    def test_card_with_set_and_collector_number(self):
+        assert _parse_query("plains|neo-293") == ("plains", "neo", "293")
+
+    def test_card_with_set_and_letter_suffix(self):
+        assert _parse_query("Very Cryptic Command|ust-49a") == (
+            "Very Cryptic Command",
+            "ust",
+            "49a",
+        )
+
+    def test_whitespace_trimmed(self):
+        assert _parse_query(" Bolt | m25 ") == ("Bolt", "m25", None)
 
 
 class TestRateLimiter:
