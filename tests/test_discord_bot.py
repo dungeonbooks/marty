@@ -290,6 +290,11 @@ class TestSendCardReply:
             image="https://example.com/bolt.jpg",
             type_line="Instant",
             oracle_text="Lightning Bolt deals 3 damage to any target.",
+            power=None,
+            toughness=None,
+            rarity="uncommon",
+            set_name="Masters 25",
+            scryfall_id="abc-123",
         )
 
         mock_message = AsyncMock()
@@ -300,6 +305,7 @@ class TestSendCardReply:
         mock_bot.user = MagicMock()
         mock_bot.user.display_name = "Test Bot"
         mock_bot.user.avatar = MagicMock(url="https://example.com/avatar.jpg")
+        mock_bot.emojis = []
 
         await send_card_reply(mock_message, card, mock_bot)
 
@@ -328,6 +334,11 @@ class TestSendCardReply:
             image="https://example.com/test.jpg",
             type_line="Creature",
             oracle_text="Test oracle text",
+            power=None,
+            toughness=None,
+            rarity="common",
+            set_name="Test Set",
+            scryfall_id="test-123",
         )
 
         mock_message = AsyncMock()
@@ -336,6 +347,7 @@ class TestSendCardReply:
 
         mock_bot = MagicMock()
         mock_bot.user = None
+        mock_bot.emojis = []
 
         await send_card_reply(mock_message, card, mock_bot)
 
@@ -357,6 +369,11 @@ class TestSendCardReply:
             image="https://example.com/swamp.jpg",
             type_line="Basic Land — Swamp",
             oracle_text="{T}: Add {B}.",
+            power=None,
+            toughness=None,
+            rarity="common",
+            set_name="Core Set 2021",
+            scryfall_id="swamp-123",
         )
 
         mock_message = AsyncMock()
@@ -364,6 +381,7 @@ class TestSendCardReply:
         mock_message.reply = mock_reply
 
         mock_bot = MagicMock()
+        mock_bot.emojis = []
 
         await send_card_reply(mock_message, card, mock_bot)
 
@@ -422,6 +440,7 @@ class TestCardsCog:
         mock_bot.user = MagicMock()
         mock_bot.user.display_name = "Test Bot"
         mock_bot.user.avatar = MagicMock(url="https://example.com/avatar.jpg")
+        mock_bot.emojis = []
 
         cog = CardsCog(mock_bot)
 
@@ -437,6 +456,11 @@ class TestCardsCog:
             image="https://example.com/bolt.jpg",
             type_line="Instant",
             oracle_text="Lightning Bolt deals 3 damage to any target.",
+            power=None,
+            toughness=None,
+            rarity="uncommon",
+            set_name="Masters 25",
+            scryfall_id="abc-123",
         )
 
         with patch(
@@ -454,6 +478,7 @@ class TestCardsCog:
         mock_bot = MagicMock()
         mock_bot.user = MagicMock()
         mock_bot.user.avatar = MagicMock(url="https://example.com/avatar.jpg")
+        mock_bot.emojis = []
 
         cog = CardsCog(mock_bot)
 
@@ -469,6 +494,11 @@ class TestCardsCog:
             image="https://example.com/bolt.jpg",
             type_line="Instant",
             oracle_text="Lightning Bolt deals 3 damage to any target.",
+            power=None,
+            toughness=None,
+            rarity="uncommon",
+            set_name="Masters 25",
+            scryfall_id="abc-123",
         )
 
         mock_card2 = Card(
@@ -479,6 +509,11 @@ class TestCardsCog:
             image="https://example.com/fireball.jpg",
             type_line="Instant",
             oracle_text="Fireball deals X damage divided as you choose among any number of targets.",
+            power=None,
+            toughness=None,
+            rarity="uncommon",
+            set_name="Fifth Edition",
+            scryfall_id="fireball-123",
         )
 
         async def mock_search_card(name):
@@ -564,6 +599,7 @@ class TestCardsCog:
         mock_bot = MagicMock()
         mock_bot.user = MagicMock()
         mock_bot.user.avatar = MagicMock(url="https://example.com/avatar.jpg")
+        mock_bot.emojis = []
 
         cog = CardsCog(mock_bot)
 
@@ -579,6 +615,11 @@ class TestCardsCog:
             image="https://example.com/bolt.jpg",
             type_line="Instant",
             oracle_text="Lightning Bolt deals 3 damage to any target.",
+            power=None,
+            toughness=None,
+            rarity="uncommon",
+            set_name="Masters 25",
+            scryfall_id="abc-123",
         )
 
         async def mock_search_card(name):

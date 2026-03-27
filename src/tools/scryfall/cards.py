@@ -9,7 +9,19 @@ logger = logging.getLogger(__name__)
 
 class Card:
     def __init__(
-        self, name, price, url, mana_cost, image, type_line, oracle_text
+        self,
+        name,
+        price,
+        url,
+        mana_cost,
+        image,
+        type_line,
+        oracle_text,
+        power,
+        toughness,
+        rarity,
+        set_name,
+        scryfall_id,
     ) -> None:
         self.name = name
         self.price = price
@@ -18,17 +30,29 @@ class Card:
         self.image = image
         self.type_line = type_line
         self.oracle_text = oracle_text
+        self.power = power
+        self.toughness = toughness
+        self.rarity = rarity
+        self.set_name = set_name
+        self.scryfall_id = scryfall_id
 
     @classmethod
     def from_scryfall(cls, data):
+        image_uris = data.get("image_uris", {})
+        image = image_uris.get("large") or image_uris.get("normal")
         return cls(
             name=data.get("name"),
             price=data.get("prices", {}).get("usd"),
             url=data.get("scryfall_uri"),
             mana_cost=data.get("mana_cost"),
-            image=data.get("image_uris", {}).get("normal"),
+            image=image,
             type_line=data.get("type_line"),
             oracle_text=data.get("oracle_text"),
+            power=data.get("power"),
+            toughness=data.get("toughness"),
+            rarity=data.get("rarity"),
+            set_name=data.get("set_name"),
+            scryfall_id=data.get("id"),
         )
 
 
