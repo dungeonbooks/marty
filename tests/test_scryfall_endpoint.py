@@ -6,6 +6,7 @@ import pytest
 from src.tools.scryfall.cards import (
     Card,
     RateLimiter,
+    _parse_query,
     get_scryfall_data,
 )
 
@@ -23,6 +24,11 @@ class TestCard:
             image="https://cards.scryfall.io/large/front/1/2/123.jpg",
             type_line="Artifact",
             oracle_text="Tap, Sacrifice Black Lotus: Add three mana of any one color.",
+            power=None,
+            toughness=None,
+            rarity="rare",
+            set_name="Limited Edition Alpha",
+            scryfall_id="abc-123",
         )
 
         assert card.name == "Black Lotus"
@@ -32,10 +38,14 @@ class TestCard:
         assert card.image == "https://cards.scryfall.io/large/front/1/2/123.jpg"
         assert card.type_line == "Artifact"
         assert "Sacrifice Black Lotus" in card.oracle_text
+        assert card.rarity == "rare"
+        assert card.set_name == "Limited Edition Alpha"
+        assert card.scryfall_id == "abc-123"
 
     def test_card_from_scryfall_with_complete_data(self):
         """Test creating a Card from Scryfall API response data."""
         scryfall_data = {
+            "id": "e3285e6b-3e79-4d7c-bf96-d920f973b122",
             "name": "Lightning Bolt",
             "mana_cost": "{R}",
             "type_line": "Instant",
@@ -43,8 +53,11 @@ class TestCard:
             "scryfall_uri": "https://scryfall.com/card/a25/141/lightning-bolt",
             "prices": {"usd": "15.00"},
             "image_uris": {
-                "normal": "https://cards.scryfall.io/normal/front/1/2/123.jpg"
+                "normal": "https://cards.scryfall.io/normal/front/1/2/123.jpg",
+                "large": "https://cards.scryfall.io/large/front/1/2/123.jpg",
             },
+            "rarity": "uncommon",
+            "set_name": "Masters 25",
         }
 
         card = Card.from_scryfall(scryfall_data)
@@ -52,14 +65,37 @@ class TestCard:
         assert card.name == "Lightning Bolt"
         assert card.mana_cost == "{R}"
         assert card.type_line == "Instant"
-        assert (
-            card.oracle_text == "Lightning Bolt deals 3 damage to any target."
-        )
+        assert card.oracle_text == "Lightning Bolt deals 3 damage to any target."
         assert card.url == "https://scryfall.com/card/a25/141/lightning-bolt"
         assert card.price == "15.00"
-        assert (
-            card.image == "https://cards.scryfall.io/normal/front/1/2/123.jpg"
-        )
+        assert card.image == "https://cards.scryfall.io/large/front/1/2/123.jpg"
+        assert card.rarity == "uncommon"
+        assert card.set_name == "Masters 25"
+        assert card.scryfall_id == "e3285e6b-3e79-4d7c-bf96-d920f973b122"
+        assert card.power is None
+        assert card.toughness is None
+
+    def test_card_from_scryfall_with_creature(self):
+        """Test creating a Card for a creature with power/toughness."""
+        scryfall_data = {
+            "id": "abc-123",
+            "name": "Tarmogoyf",
+            "mana_cost": "{1}{G}",
+            "type_line": "Creature — Lhurgoyf",
+            "oracle_text": "Tarmogoyf's power is equal to...",
+            "scryfall_uri": "https://scryfall.com/test",
+            "prices": {"usd": "10.00"},
+            "image_uris": {"large": "https://example.com/large.jpg"},
+            "power": "*",
+            "toughness": "1+*",
+            "rarity": "mythic",
+            "set_name": "Future Sight",
+        }
+
+        card = Card.from_scryfall(scryfall_data)
+
+        assert card.power == "*"
+        assert card.toughness == "1+*"
 
     def test_card_from_scryfall_with_missing_optional_fields(self):
         """Test creating a Card when optional fields are missing."""
@@ -78,6 +114,8 @@ class TestCard:
         assert card.name == "Test Card"
         assert card.price is None
         assert card.image is None
+        assert card.power is None
+        assert card.scryfall_id is None
 
     def test_card_from_scryfall_with_no_mana_cost(self):
         """Test creating a Card for a card with no mana cost."""
@@ -96,6 +134,29 @@ class TestCard:
         assert card.name == "Swamp"
         assert card.mana_cost == ""
         assert card.type_line == "Basic Land — Swamp"
+
+
+class TestParseQuery:
+    """Test cases for the _parse_query function."""
+
+    def test_plain_card_name(self):
+        assert _parse_query("Lightning Bolt") == ("Lightning Bolt", None, None)
+
+    def test_card_with_set_pipe(self):
+        assert _parse_query("Wrath of God|C13") == ("Wrath of God", "c13", None)
+
+    def test_card_with_set_and_collector_number(self):
+        assert _parse_query("plains|neo-293") == ("plains", "neo", "293")
+
+    def test_card_with_set_and_letter_suffix(self):
+        assert _parse_query("Very Cryptic Command|ust-49a") == (
+            "Very Cryptic Command",
+            "ust",
+            "49a",
+        )
+
+    def test_whitespace_trimmed(self):
+        assert _parse_query(" Bolt | m25 ") == ("Bolt", "m25", None)
 
 
 class TestRateLimiter:
