@@ -1,3 +1,3 @@
-from .singles import fetch_product_url
+from .singles import ManapoolResult, fetch_product
 
-__all__ = ["fetch_product_url"]
+__all__ = ["ManapoolResult", "fetch_product"]

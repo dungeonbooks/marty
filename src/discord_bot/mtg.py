@@ -4,7 +4,7 @@ from discord import Embed, Message
 from discord.ext import commands
 from discord.ext.commands import Bot
 
-from src.tools.manapool import fetch_product_url
+from src.tools.manapool import fetch_product
 from src.tools.scryfall.cards import Card, search_card
 
 MANA_EMOJI_NAMES = {
@@ -49,7 +49,12 @@ RARITY_COLORS = {
 }
 
 
-def _build_card_embed(card: Card, bot: Bot, manapool_url: str | None = None) -> Embed:
+def _build_card_embed(
+    card: Card,
+    bot: Bot,
+    manapool_url: str | None = None,
+    manapool_price: str | None = None,
+) -> Embed:
     mana_cost = _replace_mana_symbols(card.mana_cost, bot) if card.mana_cost else ""
     title = f"{card.name} {mana_cost}" if mana_cost else card.name
     description = card.type_line or ""
@@ -65,10 +70,12 @@ def _build_card_embed(card: Card, bot: Bot, manapool_url: str | None = None) -> 
     if card.image:
         embed.set_image(url=card.image)
 
-    if card.price:
-        embed.add_field(name="Price", value=f"${card.price}", inline=True)
-
-    if manapool_url:
+    price = manapool_price or card.price
+    if price and manapool_url:
+        embed.add_field(name="Price", value=f"[${price}]({manapool_url})", inline=True)
+    elif price:
+        embed.add_field(name="Price", value=f"${price}", inline=True)
+    elif manapool_url:
         embed.add_field(name="Buy", value=f"[Manapool]({manapool_url})", inline=True)
 
     if card.set_name and card.rarity:
@@ -78,10 +85,12 @@ def _build_card_embed(card: Card, bot: Bot, manapool_url: str | None = None) -> 
 
 
 async def send_card_reply(message: Message, card: Card, bot: Bot):
-    manapool_url = (
-        await fetch_product_url(card.scryfall_id) if card.scryfall_id else None
+    result = (
+        await fetch_product(card.scryfall_id, card.name) if card.scryfall_id else None
     )
-    embed = _build_card_embed(card, bot, manapool_url)
+    manapool_url = result.url if result else None
+    manapool_price = result.price if result else None
+    embed = _build_card_embed(card, bot, manapool_url, manapool_price)
     await message.reply(embed=embed)
 
 
