@@ -37,6 +37,12 @@ class Config:
     # Bookshop.org Affiliate Integration
     BOOKSHOP_AFFILIATE_ID: str = os.getenv("BOOKSHOP_AFFILIATE_ID", "108216")
 
+    # Redis
+    REDIS_URL: str | None = os.getenv("REDIS_URL")
+
+    # RSS Feeds
+    RPG_NEWS_CHANNEL_ID: str | None = os.getenv("RPG_NEWS_CHANNEL_ID")
+
     # Conversation
     CONVERSATION_HISTORY_LIMIT: int = int(os.getenv("CONVERSATION_HISTORY_LIMIT", "10"))
 

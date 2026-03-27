@@ -23,6 +23,7 @@ from ..database import (
 )
 from ..tools.external.hardcover import HardcoverTool
 from .embeds import create_book_embed, create_recent_releases_embed
+from .feeds import FeedsCog
 from .mtg import CardsCog
 
 logger = logging.getLogger(__name__)
@@ -501,6 +502,7 @@ def create_bot() -> MartyBot:
 
     async def setup():
         await bot.add_cog(CardsCog(bot))
+        await bot.add_cog(FeedsCog(bot))
 
     bot.setup_hook = setup
 
