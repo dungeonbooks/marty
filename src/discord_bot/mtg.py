@@ -4,6 +4,7 @@ from discord import Embed, Message
 from discord.ext import commands
 from discord.ext.commands import Bot
 
+from src.tools.manapool import fetch_product_url
 from src.tools.scryfall.cards import Card, search_card
 
 MANA_EMOJI_NAMES = {
@@ -48,7 +49,7 @@ RARITY_COLORS = {
 }
 
 
-def _build_card_embed(card: Card, bot: Bot) -> Embed:
+def _build_card_embed(card: Card, bot: Bot, manapool_url: str | None = None) -> Embed:
     mana_cost = _replace_mana_symbols(card.mana_cost, bot) if card.mana_cost else ""
     title = f"{card.name} {mana_cost}" if mana_cost else card.name
     description = card.type_line or ""
@@ -67,9 +68,7 @@ def _build_card_embed(card: Card, bot: Bot) -> Embed:
     if card.price:
         embed.add_field(name="Price", value=f"${card.price}", inline=True)
 
-    if card.name:
-        slug = card.name.lower().replace(" ", "-").replace(",", "").replace("'", "")
-        manapool_url = f"https://manapool.com/card/{slug}"
+    if manapool_url:
         embed.add_field(name="Buy", value=f"[Manapool]({manapool_url})", inline=True)
 
     if card.set_name and card.rarity:
@@ -78,9 +77,12 @@ def _build_card_embed(card: Card, bot: Bot) -> Embed:
     return embed
 
 
-def send_card_reply(message: Message, card: Card, bot: Bot):
-    embed = _build_card_embed(card, bot)
-    return message.reply(embed=embed)
+async def send_card_reply(message: Message, card: Card, bot: Bot):
+    manapool_url = (
+        await fetch_product_url(card.scryfall_id) if card.scryfall_id else None
+    )
+    embed = _build_card_embed(card, bot, manapool_url)
+    await message.reply(embed=embed)
 
 
 class CardsCog(commands.Cog):
