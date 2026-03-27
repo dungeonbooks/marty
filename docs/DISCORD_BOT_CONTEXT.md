@@ -87,11 +87,23 @@ Both SMS and Discord use the same:
 - No 10DLC compliance needed
 - Discord user context (user_id, username, channel_id, guild_id)
 
+### RSS Feed Digest (`src/discord_bot/feeds.py`)
+- Polls 3 RPG industry RSS feeds (Questing Beast, Sabre Games OSR News, Ten Foot Pole)
+- Posts weekly digest to `#rpg-news` every Monday at 10am ET
+- Custom parsing for Ten Foot Pole metadata (author, publisher, system, levels)
+- Highlights "The Best" tagged reviews with ⭐
+- Deduplicates via Redis to avoid reposting
+- `!digest` command for manual testing (requires manage_channels permission)
+- Requires `RPG_NEWS_CHANNEL_ID` env var
+
 ### File Structure
 ```
 src/discord_bot/
 ├── __init__.py
-└── bot.py              # Complete Discord bot implementation
+├── bot.py              # Complete Discord bot implementation
+├── embeds.py           # Rich embed formatting
+├── feeds.py            # RSS feed aggregator for #rpg-news
+└── mtg.py              # Magic: The Gathering card lookup
 
 prompts/
 └── marty_discord_system_prompt.md  # Discord-specific prompt
