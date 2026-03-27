@@ -5,10 +5,11 @@ and posts a digest to the configured channel.
 """
 
 import logging
-from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, time, timedelta
 
 import aiohttp
+import discord
 import feedparser
 import redis.asyncio as redis
 from discord.ext import commands, tasks
@@ -45,11 +46,7 @@ class FeedEntry:
     source: str
     published: datetime | None
     summary: str
-    tags: list[str] = None
-
-    def __post_init__(self):
-        if self.tags is None:
-            self.tags = []
+    tags: list[str] = field(default_factory=list)
 
 
 async def fetch_feed(session: aiohttp.ClientSession, feed: dict) -> list[FeedEntry]:
@@ -85,10 +82,14 @@ async def fetch_feed(session: aiohttp.ClientSession, feed: dict) -> list[FeedEnt
             summary = _extract_summary(entry, feed["name"])
             tags = []
 
+        url = entry.get("link", "")
+        if not url:
+            continue
+
         entries.append(
             FeedEntry(
                 title=entry.get("title", "Untitled"),
-                url=entry.get("link", ""),
+                url=url,
                 source=feed["name"],
                 published=published,
                 summary=summary,
@@ -213,7 +214,6 @@ class FeedsCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self._redis: redis.Redis | None = None
-        self._first_run_done = False
 
     async def cog_load(self) -> None:
         redis_url = config.REDIS_URL
@@ -294,8 +294,11 @@ class FeedsCog(commands.Cog):
                 return
             channel = self.bot.get_channel(int(channel_id))
             if not channel:
-                logger.error(f"Could not find channel {channel_id}")
-                return
+                try:
+                    channel = await self.bot.fetch_channel(int(channel_id))
+                except Exception as e:
+                    logger.error(f"Could not find channel {channel_id}: {e}")
+                    return
 
         new_entries = await self._fetch_new_entries(skip_dedup=skip_dedup)
         if not new_entries:
@@ -303,25 +306,24 @@ class FeedsCog(commands.Cog):
             return
 
         message = _format_digest(new_entries)
+        no_mentions = discord.AllowedMentions.none()
 
         # Discord message limit is 2000 chars
         if len(message) > 2000:
             chunks = _split_message(message)
             for chunk in chunks:
-                await channel.send(chunk)
+                await channel.send(chunk, allowed_mentions=no_mentions)
         else:
-            await channel.send(message)
+            await channel.send(message, allowed_mentions=no_mentions)
 
         if not skip_dedup:
             await self._mark_seen([e.url for e in new_entries])
         logger.info(f"Posted {len(new_entries)} RSS entries")
 
-    @tasks.loop(hours=168)  # 7 days
+    @tasks.loop(time=time(hour=14, minute=0))  # Daily at 14:00 UTC (10am ET)
     async def weekly_digest(self) -> None:
-        if not self._first_run_done:
-            # Skip the immediate first invocation — only post on schedule
-            self._first_run_done = True
-            logger.info("Weekly digest loop started, first post in 7 days")
+        # Only post on Mondays
+        if datetime.now(UTC).weekday() != 0:
             return
         await self._post_digest()
 
