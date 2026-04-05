@@ -118,20 +118,15 @@ class MartyBot(commands.Bot):
             hasattr(message.channel, "owner") and message.channel.owner == self.user
         )
 
-        # Check if this is a reply to a bot message (e.g. /book response)
-        is_reply_to_bot = (
-            message.reference
-            and message.reference.resolved
-            and hasattr(message.reference.resolved, "author")
-            and message.reference.resolved.author == self.user
-        )
+        # Ignore replies to bot messages (e.g. /book responses)
+        if message.reference and not is_bot_thread:
+            return
 
         # Only respond to @ mentions, DMs, or messages in bot's threads
         if not (
             self.user.mentioned_in(message)
             or isinstance(message.channel, discord.DMChannel)
             or is_bot_thread
-            or is_reply_to_bot
         ):
             return
 
@@ -164,14 +159,6 @@ class MartyBot(commands.Bot):
         # If we're in a thread created by the bot, use parent channel for conversation lookup
         is_bot_thread = (
             hasattr(message.channel, "owner") and message.channel.owner == self.user
-        )
-
-        # Check if this is a reply to a bot message (e.g. /book response)
-        is_reply_to_bot = (
-            message.reference
-            and message.reference.resolved
-            and hasattr(message.reference.resolved, "author")
-            and message.reference.resolved.author == self.user
         )
 
         # For conversation lookup, use parent channel if in bot thread
@@ -289,10 +276,8 @@ class MartyBot(commands.Bot):
                         and message.channel.owner == self.user
                     )
 
-                    if (
-                        not is_bot_thread
-                        and not is_reply_to_bot
-                        and not isinstance(message.channel, discord.DMChannel)
+                    if not is_bot_thread and not isinstance(
+                        message.channel, discord.DMChannel
                     ):
                         # Create a thread for the conversation
                         try:
@@ -350,10 +335,8 @@ class MartyBot(commands.Bot):
                     and message.channel.owner == self.user
                 )
 
-                if (
-                    not is_bot_thread
-                    and not is_reply_to_bot
-                    and not isinstance(message.channel, discord.DMChannel)
+                if not is_bot_thread and not isinstance(
+                    message.channel, discord.DMChannel
                 ):
                     # Try to create thread for error message too
                     try:
