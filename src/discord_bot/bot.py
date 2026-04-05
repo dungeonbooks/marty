@@ -118,6 +118,10 @@ class MartyBot(commands.Bot):
             hasattr(message.channel, "owner") and message.channel.owner == self.user
         )
 
+        # Ignore replies to bot messages (e.g. /book responses)
+        if message.reference and not is_bot_thread:
+            return
+
         # Only respond to @ mentions, DMs, or messages in bot's threads
         if not (
             self.user.mentioned_in(message)
