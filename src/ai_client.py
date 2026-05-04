@@ -45,27 +45,28 @@ MARTY_SYSTEM_PROMPT = load_system_prompt()
 
 
 def _build_system_blocks(base_text: str, contextual_text: str | None) -> list[dict]:
-    """Build system content blocks with a cache breakpoint on the tail.
+    """Build system content blocks with cache breakpoints.
 
-    Anthropic caches up to each `cache_control` marker. Placing the breakpoint
-    on the last block caches everything above it together.
+    Two breakpoints when contextual_text is present: one on the static base
+    (system prompt + docs index, identical across all conversations) and one
+    on the per-conversation context. This way the base block keeps hitting
+    even when the contextual block changes (e.g. current_time ticks).
     """
+    base_block = {
+        "type": "text",
+        "text": base_text,
+        "cache_control": {"type": "ephemeral"},
+    }
     if contextual_text:
         return [
-            {"type": "text", "text": base_text},
+            base_block,
             {
                 "type": "text",
                 "text": contextual_text,
                 "cache_control": {"type": "ephemeral"},
             },
         ]
-    return [
-        {
-            "type": "text",
-            "text": base_text,
-            "cache_control": {"type": "ephemeral"},
-        }
-    ]
+    return [base_block]
 
 
 def _tools_with_cache(tools: list[dict]) -> list[dict]:

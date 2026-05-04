@@ -420,7 +420,7 @@ class TestPromptCaching:
     """Test cache_control placement on system blocks and tools."""
 
     @pytest.mark.asyncio
-    async def test_cache_control_on_last_system_block_with_context(
+    async def test_cache_control_on_both_system_blocks_with_context(
         self, mock_claude_api, claude_response
     ):
         mock_claude_api.messages.create.return_value = claude_response("ok")
@@ -430,8 +430,8 @@ class TestPromptCaching:
         system_blocks = mock_claude_api.messages.create.call_args[1]["system"]
         assert isinstance(system_blocks, list)
         assert len(system_blocks) == 2
-        assert "cache_control" not in system_blocks[0]
-        assert system_blocks[-1]["cache_control"] == {"type": "ephemeral"}
+        assert system_blocks[0]["cache_control"] == {"type": "ephemeral"}
+        assert system_blocks[1]["cache_control"] == {"type": "ephemeral"}
 
     @pytest.mark.asyncio
     async def test_cache_control_on_single_block_without_context(
