@@ -111,7 +111,7 @@ class TestChatEndpoint:
 
         # Check that customer context was passed
         call_args = mock_claude_api.messages.create.call_args
-        system_prompt = call_args[1]["system"]
+        system_prompt = "\n\n".join(b["text"] for b in call_args[1]["system"])
         assert phone in system_prompt  # Phone should be in customer context
 
     def test_chat_endpoint_ai_error_handling(self, mock_claude_api, claude_response):
