@@ -148,7 +148,7 @@ class TestGenerateAIResponse:
 
         # Check that customer context was included in system prompt
         call_args = mock_claude_api.messages.create.call_args
-        system_prompt = call_args[1]["system"]
+        system_prompt = "\n\n".join(b["text"] for b in call_args[1]["system"])
         assert "Customer name: John Doe" in system_prompt
         assert "Phone: +1234567890" in system_prompt
         assert "Customer ID: 123" in system_prompt
@@ -178,7 +178,7 @@ class TestGenerateAIResponse:
 
         # Check that full name is passed to Claude for cultural handling
         call_args = mock_claude_api.messages.create.call_args
-        system_prompt = call_args[1]["system"]
+        system_prompt = "\n\n".join(b["text"] for b in call_args[1]["system"])
         assert "Customer name: José García-López" in system_prompt
 
     @pytest.mark.asyncio
@@ -203,7 +203,7 @@ class TestGenerateAIResponse:
 
         # Check that single name is handled correctly
         call_args = mock_claude_api.messages.create.call_args
-        system_prompt = call_args[1]["system"]
+        system_prompt = "\n\n".join(b["text"] for b in call_args[1]["system"])
         assert "Customer name: Madonna" in system_prompt
 
     @pytest.mark.asyncio
@@ -222,7 +222,7 @@ class TestGenerateAIResponse:
 
         # Check that only base system prompt is used
         call_args = mock_claude_api.messages.create.call_args
-        system_prompt = call_args[1]["system"]
+        system_prompt = "\n\n".join(b["text"] for b in call_args[1]["system"])
         assert "Customer Context:" not in system_prompt
         assert "Current Time & Date:" not in system_prompt
 
@@ -242,7 +242,7 @@ class TestGenerateAIResponse:
 
         # Check that empty context doesn't add extra sections
         call_args = mock_claude_api.messages.create.call_args
-        system_prompt = call_args[1]["system"]
+        system_prompt = "\n\n".join(b["text"] for b in call_args[1]["system"])
         assert "Customer Context:" not in system_prompt
         assert "Current Time & Date:" not in system_prompt
 
@@ -267,7 +267,7 @@ class TestGenerateAIResponse:
 
         # Check that only customer_id is included
         call_args = mock_claude_api.messages.create.call_args
-        system_prompt = call_args[1]["system"]
+        system_prompt = "\n\n".join(b["text"] for b in call_args[1]["system"])
         assert "Customer ID: 999" in system_prompt
         assert "Customer name:" not in system_prompt
         assert "Phone:" not in system_prompt
@@ -347,7 +347,7 @@ class TestGenerateAIResponse:
         await generate_ai_response("Hello", [], customer_context)
 
         call_args = mock_claude_api.messages.create.call_args
-        system_prompt = call_args[1]["system"]
+        system_prompt = "\n\n".join(b["text"] for b in call_args[1]["system"])
 
         # Check base prompt is included
         assert len(system_prompt) > 1000  # Should be substantial
@@ -409,11 +409,50 @@ class TestSystemPromptContent:
         await generate_ai_response("Hello", [])
 
         call_args = mock_claude_api.messages.create.call_args
-        system_prompt = call_args[1]["system"]
+        system_prompt = "\n\n".join(b["text"] for b in call_args[1]["system"])
 
         # Should start with the loaded system prompt
         assert "martinus trismegistus" in system_prompt
         assert len(system_prompt) > 1000
+
+
+class TestPromptCaching:
+    """Test cache_control placement on system blocks and tools."""
+
+    @pytest.mark.asyncio
+    async def test_cache_control_on_both_system_blocks_with_context(
+        self, mock_claude_api, claude_response
+    ):
+        mock_claude_api.messages.create.return_value = claude_response("ok")
+        await generate_ai_response(
+            "hi", [], {"name": "John", "current_date": "2024-01-15"}
+        )
+        system_blocks = mock_claude_api.messages.create.call_args[1]["system"]
+        assert isinstance(system_blocks, list)
+        assert len(system_blocks) == 2
+        assert system_blocks[0]["cache_control"] == {"type": "ephemeral"}
+        assert system_blocks[1]["cache_control"] == {"type": "ephemeral"}
+
+    @pytest.mark.asyncio
+    async def test_cache_control_on_single_block_without_context(
+        self, mock_claude_api, claude_response
+    ):
+        mock_claude_api.messages.create.return_value = claude_response("ok")
+        await generate_ai_response("hi", [])
+        system_blocks = mock_claude_api.messages.create.call_args[1]["system"]
+        assert isinstance(system_blocks, list)
+        assert len(system_blocks) == 1
+        assert system_blocks[0]["cache_control"] == {"type": "ephemeral"}
+
+    @pytest.mark.asyncio
+    async def test_cache_control_on_last_tool(self, mock_claude_api, claude_response):
+        mock_claude_api.messages.create.return_value = claude_response("ok")
+        await generate_ai_response("hi", [])
+        tools = mock_claude_api.messages.create.call_args[1]["tools"]
+        assert tools, "tools should be present on first-pass call"
+        for t in tools[:-1]:
+            assert "cache_control" not in t
+        assert tools[-1]["cache_control"] == {"type": "ephemeral"}
 
 
 class TestResponseProcessing:

@@ -44,6 +44,40 @@ def load_system_prompt() -> str:
 MARTY_SYSTEM_PROMPT = load_system_prompt()
 
 
+def _build_system_blocks(base_text: str, contextual_text: str | None) -> list[dict]:
+    """Build system content blocks with cache breakpoints.
+
+    Two breakpoints when contextual_text is present: one on the static base
+    (system prompt + docs index, identical across all conversations) and one
+    on the per-conversation context. This way the base block keeps hitting
+    even when the contextual block changes (e.g. current_time ticks).
+    """
+    base_block = {
+        "type": "text",
+        "text": base_text,
+        "cache_control": {"type": "ephemeral"},
+    }
+    if contextual_text:
+        return [
+            base_block,
+            {
+                "type": "text",
+                "text": contextual_text,
+                "cache_control": {"type": "ephemeral"},
+            },
+        ]
+    return [base_block]
+
+
+def _tools_with_cache(tools: list[dict]) -> list[dict]:
+    """Tag the last tool with cache_control to cache the tools block."""
+    if not tools:
+        return tools
+    cached = [dict(t) for t in tools]
+    cached[-1] = {**cached[-1], "cache_control": {"type": "ephemeral"}}
+    return cached
+
+
 async def generate_ai_response(
     user_message: str,
     conversation_history: list[ConversationMessage],
@@ -71,13 +105,13 @@ async def generate_ai_response(
         # Add the current user message
         messages.append({"role": "user", "content": user_message})
 
-        system_prompt = MARTY_SYSTEM_PROMPT
+        base_prompt = MARTY_SYSTEM_PROMPT
 
         try:
             from src.tools.docs.fetcher import fetch_index, format_index_for_prompt
 
             index_payload = await fetch_index()
-            system_prompt += (
+            base_prompt += (
                 "\n\n## Operational documentation\n\n"
                 "Use the `get_doc` tool with one of the slugs below to fetch the "
                 "full file before answering customer questions about policies, "
@@ -89,22 +123,20 @@ async def generate_ai_response(
         except Exception as e:
             logger.warning(f"docs index fetch failed, continuing without it: {e}")
 
+        contextual_text: str | None = None
         if customer_context:
-            context_info = []
+            sections: list[str] = []
 
-            # Use name field - let Claude handle cultural sensitivity
+            context_info = []
             if customer_context.get("name"):
                 context_info.append(f"Customer name: {customer_context['name']}")
-
             if customer_context.get("phone"):
                 context_info.append(f"Phone: {customer_context['phone']}")
             if customer_context.get("customer_id"):
                 context_info.append(f"Customer ID: {customer_context['customer_id']}")
-
             if context_info:
-                system_prompt += f"\n\nCustomer Context:\n{' | '.join(context_info)}"
+                sections.append(f"Customer Context:\n{' | '.join(context_info)}")
 
-            # Add current date/time context
             time_context = []
             if customer_context.get("current_time"):
                 time_context.append(f"Current time: {customer_context['current_time']}")
@@ -112,9 +144,14 @@ async def generate_ai_response(
                 time_context.append(f"Current date: {customer_context['current_date']}")
             if customer_context.get("current_day"):
                 time_context.append(f"Day of week: {customer_context['current_day']}")
-
             if time_context:
-                system_prompt += f"\n\nCurrent Time & Date:\n{' | '.join(time_context)}"
+                sections.append(f"Current Time & Date:\n{' | '.join(time_context)}")
+
+            if sections:
+                contextual_text = "\n\n".join(sections)
+
+        system_blocks = _build_system_blocks(base_prompt, contextual_text)
+        cached_tools = _tools_with_cache(tool_registry.get_claude_tools())
 
         # Generate response with Claude including tools
         logger.debug(f"Calling Claude API with {len(messages)} messages")
@@ -122,11 +159,22 @@ async def generate_ai_response(
             model="claude-sonnet-4-6",
             max_tokens=500,
             temperature=0.7,
-            system=system_prompt,
+            system=system_blocks,
             messages=messages,
-            tools=tool_registry.get_claude_tools(),
+            tools=cached_tools,
         )
         logger.debug(f"Claude API response received: {type(response)}")
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            logger.info(
+                "claude_usage",
+                input_tokens=getattr(usage, "input_tokens", None),
+                output_tokens=getattr(usage, "output_tokens", None),
+                cache_creation_input_tokens=getattr(
+                    usage, "cache_creation_input_tokens", None
+                ),
+                cache_read_input_tokens=getattr(usage, "cache_read_input_tokens", None),
+            )
 
         # Handle tool use and generate final response
         if response.content:
@@ -255,7 +303,7 @@ async def generate_ai_response(
                     model="claude-sonnet-4-6",
                     max_tokens=500,
                     temperature=0.7,
-                    system=system_prompt,
+                    system=system_blocks,
                     messages=messages,
                 )
                 logger.debug(f"Final response received: {type(final_response)}")
@@ -301,7 +349,7 @@ async def generate_ai_response(
                         model="claude-sonnet-4-6",
                         max_tokens=500,
                         temperature=0.7,
-                        system=system_prompt,
+                        system=system_blocks,
                         messages=[{"role": "user", "content": user_message}],
                     )
 
