@@ -184,7 +184,6 @@ class TestRateLimiter:
 
         import time
 
-        start_time = time.time()
         await limiter.acquire()
         first_call_time = time.time()
 

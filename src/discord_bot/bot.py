@@ -508,7 +508,7 @@ def create_bot() -> MartyBot:
         await bot.add_cog(CardsCog(bot))
         await bot.add_cog(FeedsCog(bot))
 
-    bot.setup_hook = setup
+    bot.setup_hook = setup  # ty: ignore[invalid-assignment]
 
     return bot
 

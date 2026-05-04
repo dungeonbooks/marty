@@ -70,7 +70,16 @@ async def fetch_feed(session: aiohttp.ClientSession, feed: dict) -> list[FeedEnt
         published = None
         if hasattr(entry, "published_parsed") and entry.published_parsed:
             try:
-                published = datetime(*entry.published_parsed[:6], tzinfo=UTC)
+                t = entry.published_parsed
+                published = datetime(
+                    t.tm_year,
+                    t.tm_mon,
+                    t.tm_mday,
+                    t.tm_hour,
+                    t.tm_min,
+                    t.tm_sec,
+                    tzinfo=UTC,
+                )
             except (ValueError, TypeError):
                 logger.warning(
                     f"Could not parse date for {entry.get('title', 'unknown')}"
