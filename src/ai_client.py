@@ -134,6 +134,11 @@ async def generate_ai_response(
                         try:
                             result = await tool.execute(**tool_input)
 
+                            logger.info(
+                                f"tool_call name={tool_name} input={tool_input} "
+                                f"success={result.success} error={result.error}"
+                            )
+
                             # Log Hardcover API response details
                             if tool_name == "hardcover_api" and result.success:
                                 action = tool_input.get("action", "unknown")
