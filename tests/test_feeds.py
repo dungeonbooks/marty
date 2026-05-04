@@ -1,12 +1,11 @@
 """Tests for the RSS feed aggregator."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from src.discord_bot.feeds import (
-    FEEDS,
     FeedEntry,
     FeedsCog,
     _extract_summary,
@@ -89,8 +88,7 @@ class TestParseTenFootPole:
 
     def test_truncates_long_description(self):
         html = (
-            '<pre class="wp-block-preformatted">By A<br>B</pre>'
-            f"<p>{'x' * 300}</p>"
+            '<pre class="wp-block-preformatted">By A<br>B</pre>' f"<p>{'x' * 300}</p>"
         )
         summary, _ = _parse_ten_foot_pole(self._make_entry(content_html=html))
         assert summary.endswith("...")
