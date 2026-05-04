@@ -63,13 +63,16 @@ async def main() -> None:
     tool = GetDocTool()
     result = await tool.execute(slug="policies/event-ticket-policy")
     print(f"  success={result.success}")
-    print(f"  title={result.data.get('title')!r}")
-    print(f"  agent_guidance count={len(result.data.get('agent_guidance', []))}")
-    if result.data.get("agent_guidance"):
-        first = result.data["agent_guidance"][0].splitlines()[0:3]
-        print("  first guidance preview:")
-        for line in first:
-            print(f"    {line}")
+    if not result.success:
+        print(f"  error={result.error!r}")
+    else:
+        print(f"  title={result.data.get('title')!r}")
+        print(f"  agent_guidance count={len(result.data.get('agent_guidance', []))}")
+        if result.data.get("agent_guidance"):
+            first = result.data["agent_guidance"][0].splitlines()[0:3]
+            print("  first guidance preview:")
+            for line in first:
+                print(f"    {line}")
 
     print()
     print("=== GetDocTool draft slug ===")

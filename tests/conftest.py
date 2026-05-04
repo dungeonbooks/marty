@@ -187,6 +187,29 @@ def test_environment():
 
 
 @pytest.fixture(autouse=True)
+def mock_docs_index():
+    """Stub the docs index fetch so unit tests don't hit raw.githubusercontent.com.
+
+    The ai_client appends fetch_index() output to the system prompt on every
+    request. Without this stub, tests either go to the network or each test
+    has to remember to patch it.
+    """
+    from src.tools.docs.fetcher import DocPayload
+
+    stub = DocPayload(
+        slug="index",
+        frontmatter={"publish": True, "title": "test index"},
+        body="",
+        agent_guidance=[],
+        fetched_at=0.0,
+    )
+    with patch(
+        "src.tools.docs.fetcher.fetch_index", AsyncMock(return_value=stub)
+    ):
+        yield
+
+
+@pytest.fixture(autouse=True)
 def mock_claude_api():
     """
     Global mock for Claude/Anthropic API calls.

@@ -152,7 +152,7 @@ async def generate_ai_response(
                             result = await tool.execute(**tool_input)
 
                             logger.info(
-                                f"tool_call name={tool_name} input={tool_input} "
+                                f"tool_call name={tool_name} "
                                 f"success={result.success} error={result.error}"
                             )
 

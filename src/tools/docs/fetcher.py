@@ -19,7 +19,7 @@ DOCS_BASE_URL = "https://raw.githubusercontent.com/dungeonbooks/docs/main"
 CACHE_TTL_SECONDS = 15 * 60
 HTTP_TIMEOUT_SECONDS = 5
 
-_FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n(.*)", re.DOTALL)
+_FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n?(.*)", re.DOTALL)
 _HTML_COMMENT_RE = re.compile(r"<!--(.*?)-->", re.DOTALL)
 
 
