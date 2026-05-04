@@ -203,9 +203,7 @@ def mock_docs_index():
         agent_guidance=[],
         fetched_at=0.0,
     )
-    with patch(
-        "src.tools.docs.fetcher.fetch_index", AsyncMock(return_value=stub)
-    ):
+    with patch("src.tools.docs.fetcher.fetch_index", AsyncMock(return_value=stub)):
         yield
 
 
