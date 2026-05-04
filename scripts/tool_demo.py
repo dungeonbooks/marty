@@ -179,13 +179,14 @@ class ToolCallingChatProcessor:
                 print(f"   Description: {tool.description}")
                 print(f"   Parameters: {list(tool.parameters.keys())}")
 
-        # Show Claude-compatible tool definitions
-        print("\n🤖 Claude-Compatible Tool Definitions:")
-        claude_tools = self.registry.get_claude_tools()
-        for tool_def in claude_tools:
-            print(f"\n📝 {tool_def['name']}")
-            print(f"   Description: {tool_def['description']}")
-            print(f"   Required params: {tool_def['input_schema']['required']}")
+        # Show OpenAI-compatible tool definitions (used by Together/Kimi)
+        print("\n🤖 OpenAI-Compatible Tool Definitions:")
+        openai_tools = self.registry.get_openai_tools()
+        for tool_def in openai_tools:
+            fn = tool_def["function"]
+            print(f"\n📝 {fn['name']}")
+            print(f"   Description: {fn['description']}")
+            print(f"   Required params: {fn['parameters']['required']}")
 
     async def simulate_claude_tool_calling(
         self, phone: str, user_message: str

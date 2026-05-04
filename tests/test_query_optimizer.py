@@ -19,33 +19,32 @@ class TestQueryOptimizerTool:
         return QueryOptimizerTool()
 
     @pytest.fixture
-    def mock_claude_response(self):
-        """Mock Claude API response for query optimization."""
+    def mock_llm_response(self):
+        """Mock LLM (OpenAI-shape) response for query optimization."""
+        payload = json.dumps(
+            {
+                "pattern": "AUTHOR_QUERY",
+                "query_terms": "Cassandra Khaw",
+                "sort_by": "release_date:desc",
+                "author": "Cassandra Khaw",
+                "title": None,
+                "genre": None,
+                "temporal_indicators": ["new"],
+                "confidence": 0.9,
+                "intent": "Find recent books by Cassandra Khaw",
+                "search_strategy": "prioritize recent releases by author",
+                "limit": 5,
+            }
+        )
         return type(
             "MockResponse",
             (),
             {
-                "content": [
+                "choices": [
                     type(
-                        "MockContent",
+                        "MockChoice",
                         (),
-                        {
-                            "text": json.dumps(
-                                {
-                                    "pattern": "AUTHOR_QUERY",
-                                    "query_terms": "Cassandra Khaw",
-                                    "sort_by": "release_date:desc",
-                                    "author": "Cassandra Khaw",
-                                    "title": None,
-                                    "genre": None,
-                                    "temporal_indicators": ["new"],
-                                    "confidence": 0.9,
-                                    "intent": "Find recent books by Cassandra Khaw",
-                                    "search_strategy": "prioritize recent releases by author",
-                                    "limit": 5,
-                                }
-                            )
-                        },
+                        {"message": type("MockMessage", (), {"content": payload})()},
                     )()
                 ]
             },
@@ -69,12 +68,14 @@ class TestQueryOptimizerTool:
         assert not query_optimizer.validate_input(query=None)
 
     @pytest.mark.asyncio
-    async def test_execute_success(self, query_optimizer, mock_claude_response):
+    async def test_execute_success(self, query_optimizer, mock_llm_response):
         """Test successful query optimization."""
         with patch.object(
-            query_optimizer.claude_client.messages, "create", new_callable=AsyncMock
+            query_optimizer.llm_client.chat.completions,
+            "create",
+            new_callable=AsyncMock,
         ) as mock_create:
-            mock_create.return_value = mock_claude_response
+            mock_create.return_value = mock_llm_response
 
             result = await query_optimizer.execute(query="Cassandra Khaw's new book")
 
@@ -86,12 +87,14 @@ class TestQueryOptimizerTool:
             assert "new" in result.data["temporal_indicators"]
 
     @pytest.mark.asyncio
-    async def test_execute_with_context(self, query_optimizer, mock_claude_response):
+    async def test_execute_with_context(self, query_optimizer, mock_llm_response):
         """Test query optimization with context."""
         with patch.object(
-            query_optimizer.claude_client.messages, "create", new_callable=AsyncMock
+            query_optimizer.llm_client.chat.completions,
+            "create",
+            new_callable=AsyncMock,
         ) as mock_create:
-            mock_create.return_value = mock_claude_response
+            mock_create.return_value = mock_llm_response
 
             context = {
                 "platform": "discord",
@@ -118,7 +121,9 @@ class TestQueryOptimizerTool:
     async def test_claude_api_failure(self, query_optimizer):
         """Test fallback when Claude API fails."""
         with patch.object(
-            query_optimizer.claude_client.messages, "create", new_callable=AsyncMock
+            query_optimizer.llm_client.chat.completions,
+            "create",
+            new_callable=AsyncMock,
         ) as mock_create:
             mock_create.side_effect = Exception("Claude API error")
 
@@ -139,7 +144,9 @@ class TestQueryOptimizerTool:
         }
 
         with patch.object(
-            query_optimizer.claude_client.messages, "create", new_callable=AsyncMock
+            query_optimizer.llm_client.chat.completions,
+            "create",
+            new_callable=AsyncMock,
         ) as mock_create:
             mock_create.return_value = invalid_response
 

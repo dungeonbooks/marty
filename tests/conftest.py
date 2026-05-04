@@ -2,7 +2,7 @@
 Test configuration for Marty Bot.
 Ensures test isolation and prevents accidental use of production services.
 
-CRITICAL: All tests must mock Claude/Anthropic API calls to prevent:
+CRITICAL: All tests must mock LLM API calls (Together / Kimi K2.5) to prevent:
 - Unnecessary API costs
 - Rate limiting and quota exhaustion
 - Non-deterministic test results
@@ -174,7 +174,8 @@ def test_environment():
     with patch.dict(
         os.environ,
         {
-            # Remove production API keys
+            # Remove production LLM keys; tests mock the client directly.
+            "TOGETHER_API_KEY": "test-token",
             "ANTHROPIC_API_KEY": "",
             # Set test database URL so health check works correctly
             "DATABASE_URL": "sqlite+aiosqlite:///:memory:",
@@ -207,54 +208,66 @@ def mock_docs_index():
         yield
 
 
+def _make_llm_response(text: str, tool_calls=None):
+    """Build a mock LLM response in OpenAI chat-completions shape."""
+    message = MagicMock()
+    message.content = text
+    message.tool_calls = tool_calls
+    choice = MagicMock()
+    choice.message = message
+    response = MagicMock()
+    response.choices = [choice]
+    return response
+
+
 @pytest.fixture(autouse=True)
-def mock_claude_api():
+def mock_llm_api():
     """
-    Global mock for Claude/Anthropic API calls.
+    Global mock for LLM API calls (Together-hosted Kimi K2.5).
 
-    This fixture automatically mocks all Claude API calls to:
-    - Prevent accidental real API usage in tests
-    - Ensure deterministic test results
-    - Avoid API costs and rate limiting
-
+    Mocks `client.chat.completions.create` so tests don't hit the network.
     Tests can override the mock response using:
-    mock_claude_api.messages.create.return_value = custom_response
+        mock_llm_api.chat.completions.create.return_value = custom_response
     """
-    # Create a mock response that matches Claude's actual response structure
-    default_response = MagicMock()
-    default_response.content = [MagicMock(text="hey! what can I help you with?")]
+    default_response = _make_llm_response("hey! what can I help you with?")
 
-    # Mock the client instance directly (not the class)
     with patch("src.ai_client.client") as mock_client:
-        # Set up the messages mock properly
-        mock_client.messages = MagicMock()
-
-        # Use AsyncMock properly configured
-        mock_client.messages.create = AsyncMock(return_value=default_response)
-
-        # Reset the mock between tests
-        mock_client.messages.create.reset_mock()
+        mock_client.chat = MagicMock()
+        mock_client.chat.completions = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=default_response)
+        mock_client.chat.completions.create.reset_mock()
 
         yield mock_client
 
 
+# Backwards-compat alias for tests that haven't migrated to mock_llm_api yet.
 @pytest.fixture
-def claude_response():
+def mock_claude_api(mock_llm_api):
+    """Deprecated: use mock_llm_api. Kept as a passthrough during migration."""
+    # Adapter so callers that did `mock_claude_api.messages.create...` still work
+    # by routing those attribute accesses to chat.completions.create.
+    mock_llm_api.messages = mock_llm_api.chat.completions
+    return mock_llm_api
+
+
+@pytest.fixture
+def llm_response():
     """
-    Factory fixture for creating Claude response objects.
+    Factory fixture for creating LLM response objects in OpenAI shape.
 
     Usage:
-        def test_something(claude_response):
-            response = claude_response("Hello there!")
-            mock_claude_api.messages.create.return_value = response
+        def test_something(llm_response):
+            response = llm_response("Hello there!")
+            mock_llm_api.chat.completions.create.return_value = response
     """
+    return _make_llm_response
 
-    def _create_response(text: str):
-        response = MagicMock()
-        response.content = [MagicMock(text=text)]
-        return response
 
-    return _create_response
+# Backwards-compat alias.
+@pytest.fixture
+def claude_response(llm_response):
+    """Deprecated: use llm_response."""
+    return llm_response
 
 
 @pytest.fixture(scope="session", autouse=True)

@@ -62,23 +62,31 @@ class ToolRegistry:
         tool_class = self._tools.get(name)
         return tool_class() if tool_class else None
 
-    def get_claude_tools(self) -> list[dict[str, Any]]:
-        """Get all tools formatted for Claude API."""
-        claude_tools = []
+    def get_openai_tools(self) -> list[dict[str, Any]]:
+        """Get all tools formatted for OpenAI-compatible chat-completions APIs.
+
+        Used for Kimi K2.5 via Together. Same JSON schema as the previous
+        get_claude_tools(), wrapped in the OpenAI {type: function, function: ...}
+        envelope.
+        """
+        tools = []
         for tool_class in self._tools.values():
             tool = tool_class()
-            claude_tools.append(
+            tools.append(
                 {
-                    "name": tool.name,
-                    "description": tool.description,
-                    "input_schema": {
-                        "type": "object",
-                        "properties": tool.parameters,
-                        "required": list(tool.parameters.keys()),
+                    "type": "function",
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": {
+                            "type": "object",
+                            "properties": tool.parameters,
+                            "required": list(tool.parameters.keys()),
+                        },
                     },
                 }
             )
-        return claude_tools
+        return tools
 
     def list_tools(self) -> list[str]:
         """List all registered tool names."""

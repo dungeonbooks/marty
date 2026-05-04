@@ -1,5 +1,5 @@
 """
-Tests for AI client and Claude integration.
+Tests for AI client and Together/Kimi integration.
 Tests prompt loading, response generation, error handling, and mocking.
 """
 
@@ -114,14 +114,15 @@ class TestGenerateAIResponse:
         # Check that conversation history was included in the first call
         call_args = mock_claude_api.messages.create.call_args
         messages = call_args[1]["messages"]
-        # The first call should have 3 messages: 2 history + 1 current
-        assert len(messages) >= 3  # May have additional tool-related messages
-        assert messages[0]["role"] == "user"
-        assert messages[0]["content"] == "I need a Python book"
-        assert messages[1]["role"] == "assistant"
-        assert messages[1]["content"] == "what level are you?"
-        assert messages[2]["role"] == "user"
-        assert messages[2]["content"] == "intermediate"
+        # OpenAI shape: messages[0] is system, then 2 history + 1 current
+        assert len(messages) >= 4
+        assert messages[0]["role"] == "system"
+        assert messages[1]["role"] == "user"
+        assert messages[1]["content"] == "I need a Python book"
+        assert messages[2]["role"] == "assistant"
+        assert messages[2]["content"] == "what level are you?"
+        assert messages[3]["role"] == "user"
+        assert messages[3]["content"] == "intermediate"
 
     @pytest.mark.asyncio
     async def test_generate_ai_response_with_customer_context(
@@ -148,7 +149,7 @@ class TestGenerateAIResponse:
 
         # Check that customer context was included in system prompt
         call_args = mock_claude_api.messages.create.call_args
-        system_prompt = call_args[1]["system"]
+        system_prompt = call_args[1]["messages"][0]["content"]
         assert "Customer name: John Doe" in system_prompt
         assert "Phone: +1234567890" in system_prompt
         assert "Customer ID: 123" in system_prompt
@@ -178,7 +179,7 @@ class TestGenerateAIResponse:
 
         # Check that full name is passed to Claude for cultural handling
         call_args = mock_claude_api.messages.create.call_args
-        system_prompt = call_args[1]["system"]
+        system_prompt = call_args[1]["messages"][0]["content"]
         assert "Customer name: José García-López" in system_prompt
 
     @pytest.mark.asyncio
@@ -203,7 +204,7 @@ class TestGenerateAIResponse:
 
         # Check that single name is handled correctly
         call_args = mock_claude_api.messages.create.call_args
-        system_prompt = call_args[1]["system"]
+        system_prompt = call_args[1]["messages"][0]["content"]
         assert "Customer name: Madonna" in system_prompt
 
     @pytest.mark.asyncio
@@ -222,7 +223,7 @@ class TestGenerateAIResponse:
 
         # Check that only base system prompt is used
         call_args = mock_claude_api.messages.create.call_args
-        system_prompt = call_args[1]["system"]
+        system_prompt = call_args[1]["messages"][0]["content"]
         assert "Customer Context:" not in system_prompt
         assert "Current Time & Date:" not in system_prompt
 
@@ -242,7 +243,7 @@ class TestGenerateAIResponse:
 
         # Check that empty context doesn't add extra sections
         call_args = mock_claude_api.messages.create.call_args
-        system_prompt = call_args[1]["system"]
+        system_prompt = call_args[1]["messages"][0]["content"]
         assert "Customer Context:" not in system_prompt
         assert "Current Time & Date:" not in system_prompt
 
@@ -267,7 +268,7 @@ class TestGenerateAIResponse:
 
         # Check that only customer_id is included
         call_args = mock_claude_api.messages.create.call_args
-        system_prompt = call_args[1]["system"]
+        system_prompt = call_args[1]["messages"][0]["content"]
         assert "Customer ID: 999" in system_prompt
         assert "Customer name:" not in system_prompt
         assert "Phone:" not in system_prompt
@@ -289,9 +290,9 @@ class TestGenerateAIResponse:
     @pytest.mark.asyncio
     async def test_generate_ai_response_empty_content(self, mock_claude_api):
         """Test handling of empty response content."""
-        # Create a mock response with empty content
         mock_response = MagicMock()
-        mock_response.content = []
+        mock_message = MagicMock(content="", tool_calls=None)
+        mock_response.choices = [MagicMock(message=mock_message)]
         mock_claude_api.messages.create.return_value = mock_response
 
         response = await generate_ai_response("Hello", [])
@@ -300,17 +301,14 @@ class TestGenerateAIResponse:
 
     @pytest.mark.asyncio
     async def test_generate_ai_response_non_text_content(self, mock_claude_api):
-        """Test handling of non-text content in response."""
-        # Create a mock response that returns a string when converted to string
+        """Test handling of plain text content in response."""
         mock_response = MagicMock()
-        mock_content = MagicMock()
-        mock_content.text = "fallback content"  # Just give it a text attribute
-        mock_response.content = [mock_content]
+        mock_message = MagicMock(content="fallback content", tool_calls=None)
+        mock_response.choices = [MagicMock(message=mock_message)]
         mock_claude_api.messages.create.return_value = mock_response
 
         response = await generate_ai_response("Hello", [])
 
-        # Should get the text content
         assert isinstance(response, tuple)
         assert response == ("fallback content", [])
 
@@ -323,11 +321,12 @@ class TestGenerateAIResponse:
         await generate_ai_response("Hello", [])
 
         call_args = mock_claude_api.messages.create.call_args
-        assert call_args[1]["model"] == "claude-sonnet-4-6"
+        assert call_args[1]["model"] == "moonshotai/Kimi-K2.5"
         assert call_args[1]["max_tokens"] == 500
         assert call_args[1]["temperature"] == 0.7
-        assert "system" in call_args[1]
         assert "messages" in call_args[1]
+        # System prompt is the first message in OpenAI shape, not a kwarg
+        assert call_args[1]["messages"][0]["role"] == "system"
 
     @pytest.mark.asyncio
     async def test_system_prompt_with_context(self, mock_claude_api, claude_response):
@@ -347,7 +346,7 @@ class TestGenerateAIResponse:
         await generate_ai_response("Hello", [], customer_context)
 
         call_args = mock_claude_api.messages.create.call_args
-        system_prompt = call_args[1]["system"]
+        system_prompt = call_args[1]["messages"][0]["content"]
 
         # Check base prompt is included
         assert len(system_prompt) > 1000  # Should be substantial
@@ -364,11 +363,9 @@ class TestGenerateAIResponse:
 class TestEnvironmentIntegration:
     """Test environment integration and configuration."""
 
-    def test_anthropic_api_key_loading(self):
+    def test_together_api_key_loading(self):
         """Test that API key is loaded from environment."""
-        # Test with environment variable
-        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
-            # Import client after setting env var
+        with patch.dict(os.environ, {"TOGETHER_API_KEY": "test-key"}):
             from src.ai_client import client
 
             assert hasattr(client, "api_key")
@@ -409,7 +406,7 @@ class TestSystemPromptContent:
         await generate_ai_response("Hello", [])
 
         call_args = mock_claude_api.messages.create.call_args
-        system_prompt = call_args[1]["system"]
+        system_prompt = call_args[1]["messages"][0]["content"]
 
         # Should start with the loaded system prompt
         assert "martinus trismegistus" in system_prompt
@@ -422,11 +419,9 @@ class TestResponseProcessing:
     @pytest.mark.asyncio
     async def test_response_content_extraction(self, mock_claude_api):
         """Test proper extraction of response content."""
-        # Create a mock response with proper structure
         mock_response = MagicMock()
-        mock_content = MagicMock()
-        mock_content.text = "extracted text response"
-        mock_response.content = [mock_content]
+        mock_message = MagicMock(content="extracted text response", tool_calls=None)
+        mock_response.choices = [MagicMock(message=mock_message)]
         mock_claude_api.messages.create.return_value = mock_response
 
         response = await generate_ai_response("Hello", [])
@@ -436,9 +431,9 @@ class TestResponseProcessing:
     @pytest.mark.asyncio
     async def test_response_fallback_handling(self, mock_claude_api):
         """Test fallback handling for malformed responses."""
-        # Create a mock response with no content
         mock_response = MagicMock()
-        mock_response.content = None
+        mock_message = MagicMock(content=None, tool_calls=None)
+        mock_response.choices = [MagicMock(message=mock_message)]
         mock_claude_api.messages.create.return_value = mock_response
 
         response = await generate_ai_response("Hello", [])

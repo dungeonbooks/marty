@@ -109,9 +109,9 @@ class TestChatEndpoint:
 
         assert response.status_code == 200
 
-        # Check that customer context was passed
+        # Check that customer context was passed (OpenAI shape: system is messages[0])
         call_args = mock_claude_api.messages.create.call_args
-        system_prompt = call_args[1]["system"]
+        system_prompt = call_args[1]["messages"][0]["content"]
         assert phone in system_prompt  # Phone should be in customer context
 
     def test_chat_endpoint_ai_error_handling(self, mock_claude_api, claude_response):

@@ -31,7 +31,7 @@ Marty is a burnt-out wizard who used to do software engineering and now works at
 - Python 3.13
 - FastAPI with async support
 - Hypercorn ASGI server (dual-stack IPv4/IPv6)
-- Claude for conversations
+- Kimi K2.5 via Together AI for conversations
 - PostgreSQL with SQLAlchemy
 - Hardcover API for book data
 - Discord.py for bot integration
@@ -48,7 +48,7 @@ Marty is a burnt-out wizard who used to do software engineering and now works at
 - just (for command running)
 - PostgreSQL database (Supabase recommended)
 - Redis server (for rate limiting and caching)
-- Anthropic API key
+- Together AI API key
 - Hardcover API token
 - Discord bot token
 
@@ -88,7 +88,7 @@ Required environment variables:
 
 ```
 DATABASE_URL=postgresql+asyncpg://user:password@host:5432/dbname
-ANTHROPIC_API_KEY=your_claude_api_key_here
+TOGETHER_API_KEY=your_together_api_key_here
 HARDCOVER_API_TOKEN=Bearer your_hardcover_token_here
 DISCORD_BOT_TOKEN=your_discord_bot_token_here
 DISCORD_APP_ID=your_discord_application_id_here
@@ -194,7 +194,7 @@ Terminal chat interface for testing responses.
 MARTY_ENABLE_REAL_API_TESTS=1 just smoke-test
 ```
 
-Comprehensive test of all integrations: Claude, Hardcover API, and database.
+Comprehensive test of all integrations: Together (Kimi K2.5), Hardcover API, and database.
 Makes real API calls - use sparingly.
 
 ### Test Suite
@@ -232,7 +232,7 @@ just test-cov
 just test-verbose
 ```
 
-**Testing**: All Claude API calls are automatically mocked in tests to prevent costs. Real API calls only happen in smoke tests when `MARTY_ENABLE_REAL_API_TESTS=1` is set.
+**Testing**: All LLM API calls are automatically mocked in tests to prevent costs. Real API calls only happen in smoke tests when `MARTY_ENABLE_REAL_API_TESTS=1` is set.
 
 ### Code Quality
 
@@ -311,10 +311,11 @@ just watch
 
 ## Configuration
 
-### Claude
+### Together AI (Kimi K2.5)
 
-Get API key from console.anthropic.com.
-Add to .env as `ANTHROPIC_API_KEY`.
+Get API key from api.together.xyz.
+Add to .env as `TOGETHER_API_KEY`. Marty calls Kimi K2.5 with reasoning disabled
+via Together's OpenAI-compatible chat-completions endpoint.
 
 ### Hardcover API
 
@@ -329,7 +330,7 @@ Add token as `DISCORD_BOT_TOKEN`.
 ### Environment Variables
 
 - `DATABASE_URL`: PostgreSQL connection string
-- `ANTHROPIC_API_KEY`: Anthropic API key
+- `TOGETHER_API_KEY`: Together AI API key (Kimi K2.5)
 - `HARDCOVER_API_TOKEN`: Book data API token
 - `DISCORD_BOT_TOKEN`: Discord bot token
 - `DISCORD_APP_ID`: Discord application ID
@@ -342,7 +343,7 @@ Add token as `DISCORD_BOT_TOKEN`.
 
 ### Conversation Layer
 
-Claude handles conversation and book recommendations.
+Kimi K2.5 (via Together AI) handles conversation and book recommendations.
 
 ### Database Layer
 
@@ -401,14 +402,14 @@ echo $DATABASE_URL
 just db-reset
 ```
 
-### Claude Issues
+### LLM Issues
 
 ```bash
 # Test integration (costs money)
 MARTY_ENABLE_REAL_API_TESTS=1 just smoke-test
 
 # Check API key
-echo $ANTHROPIC_API_KEY
+echo $TOGETHER_API_KEY
 ```
 
 ### GNU parallel Not Found

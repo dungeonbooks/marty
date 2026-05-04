@@ -1,7 +1,7 @@
 # Marty - AI Bookstore Chatbot
 
 ## Project Overview
-Python 3.13+ FastAPI application for AI bookstore chatbot. Uses Claude AI, PostgreSQL, Hardcover API. Discord interface.
+Python 3.13+ FastAPI application for AI bookstore chatbot. Uses Kimi K2.5 (via Together AI), PostgreSQL, Hardcover API. Discord interface.
 
 ## Dependency Management
 **CRITICAL: Always use `uv` (NEVER pip):**
@@ -46,7 +46,7 @@ Python 3.13+ FastAPI application for AI bookstore chatbot. Uses Claude AI, Postg
 
 ## Key Files
 - `src/main.py` - FastAPI application entry point
-- `src/ai_client.py` - Claude AI integration
+- `src/ai_client.py` - LLM integration (Kimi K2.5 via Together)
 - `src/discord_bot/bot.py` - Discord bot implementation
 - `justfile` - Command definitions (use these!)
 - `pyproject.toml` - Dependencies and config
@@ -55,6 +55,6 @@ Python 3.13+ FastAPI application for AI bookstore chatbot. Uses Claude AI, Postg
 ## Environment Variables
 Required in `.env`:
 - `DATABASE_URL` - PostgreSQL connection
-- `ANTHROPIC_API_KEY` - Claude API key
+- `TOGETHER_API_KEY` - Together AI API key (for Kimi K2.5)
 - `HARDCOVER_API_TOKEN` - Book data API
 - `DISCORD_BOT_TOKEN` - Discord bot token
