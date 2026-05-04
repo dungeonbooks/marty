@@ -10,6 +10,7 @@ import time
 from unittest.mock import AsyncMock
 
 import pytest
+import yaml
 
 from src.tools.docs import fetcher
 from src.tools.docs.fetcher import (
@@ -268,6 +269,59 @@ class TestErrorPaths:
         )
         with pytest.raises(DocNotFoundError):
             await fetch_doc("x")
+
+    @pytest.mark.asyncio
+    async def test_parse_error_propagates_instead_of_serving_stale(self, monkeypatch):
+        # A bad doc commit (malformed YAML, etc.) should surface, not be masked.
+        _cache.set(
+            "x",
+            DocPayload(
+                slug="x",
+                frontmatter={"publish": True},
+                body="stale body",
+                agent_guidance=[],
+                fetched_at=time.time() - CACHE_TTL_SECONDS - 1,
+            ),
+        )
+        monkeypatch.setattr(
+            fetcher,
+            "_fetch_remote",
+            AsyncMock(side_effect=yaml.YAMLError("bad yaml")),
+        )
+        with pytest.raises(yaml.YAMLError):
+            await fetch_doc("x")
+
+    @pytest.mark.asyncio
+    async def test_stale_served_entry_grants_grace_window(self, monkeypatch):
+        # After serving stale once, the next call within the grace window
+        # should hit the fast path and not re-attempt the failing fetch.
+        _cache.set(
+            "x",
+            DocPayload(
+                slug="x",
+                frontmatter={"publish": True},
+                body="stale body",
+                agent_guidance=[],
+                fetched_at=time.time() - CACHE_TTL_SECONDS - 1,
+            ),
+        )
+        fetch_calls = 0
+
+        async def failing_fetch(slug):
+            nonlocal fetch_calls
+            fetch_calls += 1
+            raise ConnectionError("boom")
+
+        monkeypatch.setattr(fetcher, "_fetch_remote", failing_fetch)
+
+        first = await fetch_doc("x")
+        second = await fetch_doc("x")
+        third = await fetch_doc("x")
+
+        assert first.body == second.body == third.body == "stale body"
+        # Only the first call exercised _fetch_remote; the next two short-
+        # circuited via the freshness window granted by touch().
+        assert fetch_calls == 1
 
 
 class TestStampedePrevention:

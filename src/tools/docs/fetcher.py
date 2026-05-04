@@ -1,11 +1,11 @@
 """Fetch and parse markdown docs from dungeonbooks/docs.
 
 Uses raw.githubusercontent.com directly. No GitHub API auth, no PAT, read-only.
-In-memory TTL cache with per-slug locking and stale-on-failure fallback. The
-publish gate (`publish: true` frontmatter) is enforced here as a safety belt —
-the system-prompt index should already filter drafts out so Claude never asks
-for them, but unpublished slugs raise rather than return content if asked for
-directly.
+In-memory TTL cache with single-lock refill and stale-on-network-failure
+fallback. The publish gate (`publish: true` frontmatter) is enforced here as a
+safety belt — the system-prompt index should already filter drafts out so
+Claude never asks for them, but unpublished slugs raise rather than return
+content if asked for directly.
 """
 
 import asyncio
@@ -22,6 +22,21 @@ logger = logging.getLogger(__name__)
 DOCS_BASE_URL = "https://raw.githubusercontent.com/dungeonbooks/docs/main"
 CACHE_TTL_SECONDS = 15 * 60
 HTTP_TIMEOUT_SECONDS = 5
+
+# When we serve a stale entry because the upstream is failing, treat that
+# entry as fresh for this many seconds. Prevents concurrent and immediately-
+# subsequent callers from each retrying against a broken upstream — they all
+# get the same stale payload until the grace expires.
+STALE_GRACE_SECONDS = 60
+
+# Errors that justify falling back to a stale cached entry. Keep this narrow:
+# parser/content errors should propagate so a bad doc commit surfaces loudly
+# instead of being masked by the previous version.
+_TRANSIENT_FETCH_ERRORS: tuple[type[Exception], ...] = (
+    aiohttp.ClientError,
+    asyncio.TimeoutError,
+    ConnectionError,
+)
 
 _FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n?(.*)", re.DOTALL)
 _HTML_COMMENT_RE = re.compile(r"<!--(.*?)-->", re.DOTALL)
@@ -45,10 +60,18 @@ class DocNotPublishedError(Exception):
 
 
 class _Cache:
+    """In-memory TTL cache with a single global refill lock.
+
+    A single global lock instead of a per-slug dict avoids unbounded growth
+    from one-off slug spam. Marty's actual workload (~5 published slugs,
+    moderate Discord traffic) sees almost no contention; the lock is held
+    for the duration of one HTTP round-trip during cache refills only.
+    """
+
     def __init__(self, ttl: float) -> None:
         self.ttl = ttl
         self._store: dict[str, DocPayload] = {}
-        self._locks: dict[str, asyncio.Lock] = {}
+        self._refill_lock = asyncio.Lock()
 
     def get_fresh(self, slug: str) -> DocPayload | None:
         payload = self._store.get(slug)
@@ -64,14 +87,25 @@ class _Cache:
     def set(self, slug: str, payload: DocPayload) -> None:
         self._store[slug] = payload
 
-    def lock(self, slug: str) -> asyncio.Lock:
-        if slug not in self._locks:
-            self._locks[slug] = asyncio.Lock()
-        return self._locks[slug]
+    def touch(self, slug: str, grace_seconds: float) -> None:
+        """Treat the cached entry as fresh for `grace_seconds` more.
+
+        Used when serving stale on transient fetch failure: subsequent
+        callers within the grace window get the same stale payload from
+        the fast path instead of each issuing their own retry against
+        the broken upstream.
+        """
+        entry = self._store.get(slug)
+        if entry is None:
+            return
+        # Push fetched_at forward so (now - fetched_at) becomes ttl - grace.
+        entry.fetched_at = time.time() - max(0.0, self.ttl - grace_seconds)
+
+    def refill_lock(self) -> asyncio.Lock:
+        return self._refill_lock
 
     def clear(self) -> None:
         self._store.clear()
-        self._locks.clear()
 
 
 _cache = _Cache(CACHE_TTL_SECONDS)
@@ -120,10 +154,14 @@ async def fetch_doc(slug: str, *, force: bool = False) -> DocPayload:
 
     Caching:
       - Fresh hit: return immediately, no network.
-      - Expired or missing: acquire per-slug lock, refetch under lock so
-        concurrent callers don't fan out duplicate requests.
-      - Network/transient error during refetch: fall back to stale entry if
-        present (logged as a warning). If no stale entry, raise.
+      - Expired or missing: acquire the global refill lock and refetch
+        under lock so concurrent callers don't fan out duplicate requests.
+      - Transient transport error during refetch: serve the stale cached
+        entry if present and extend its freshness by STALE_GRACE_SECONDS,
+        so the next callers within the grace window don't each retry.
+        If no stale entry, propagate the error.
+      - Parse / content errors propagate. A bad docs commit surfaces; we
+        do not silently mask it with the previous version.
 
     Raises:
       - DocNotFoundError on 404 (file is gone, no point serving stale).
@@ -134,7 +172,7 @@ async def fetch_doc(slug: str, *, force: bool = False) -> DocPayload:
         if cached is not None:
             return cached
 
-    async with _cache.lock(slug):
+    async with _cache.refill_lock():
         if not force:
             cached = _cache.get_fresh(slug)
             if cached is not None:
@@ -144,13 +182,15 @@ async def fetch_doc(slug: str, *, force: bool = False) -> DocPayload:
             payload = await _fetch_remote(slug)
         except DocNotFoundError:
             raise
-        except Exception as e:
+        except _TRANSIENT_FETCH_ERRORS as e:
             stale = _cache.get_stale(slug)
             if stale is not None:
                 logger.warning(
                     f"docs fetch failed for {slug}: {e}; serving stale entry "
-                    f"({int(time.time() - stale.fetched_at)}s old)"
+                    f"({int(time.time() - stale.fetched_at)}s old, "
+                    f"grace {STALE_GRACE_SECONDS}s)"
                 )
+                _cache.touch(slug, STALE_GRACE_SECONDS)
                 return stale
             raise
 
