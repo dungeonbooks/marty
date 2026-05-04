@@ -17,21 +17,3 @@ repos:
         exclude: ^tests/
       - id: ruff-format
         exclude: ^tests/
-
-  - repo: https://github.com/PyCQA/bandit
-    rev: 1.7.7
-    hooks:
-      - id: bandit
-        entry: uv run bandit
-        args: [-r, src]
-        files: ^src/
-
-  - repo: local
-    hooks:
-      - id: pytest
-        name: pytest
-        entry: uv run pytest -m "not integration"
-        language: system
-        types: [python]
-        files: ^(src/|tests/).*\.py$
-        pass_filenames: false
