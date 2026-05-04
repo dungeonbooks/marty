@@ -53,7 +53,14 @@ class GetDocTool(BaseTool):
             return ToolResult(
                 success=False,
                 data=None,
-                error=f"Doc '{slug}' is not published.",
+                error=(
+                    f"Doc '{slug}' is in draft and has no public content yet. "
+                    "Tell the customer we don't have current information to share "
+                    "for this topic and route them to the website "
+                    "(https://www.dungeonbooks.com) or to staff. Do NOT imply "
+                    "a load failure or fetch error - the doc is intentionally "
+                    "unpublished."
+                ),
             )
         except Exception as e:
             self.logger.warning(f"get_doc fetch failed for slug={slug}: {e}")
