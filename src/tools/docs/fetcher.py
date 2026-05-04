@@ -116,8 +116,21 @@ async def fetch_doc(slug: str, *, force: bool = False) -> DocPayload:
 
 
 async def fetch_index() -> DocPayload:
-    """Fetch the root index.md. Used by system-prompt assembly at boot."""
+    """Fetch the root index.md. Used by system-prompt assembly."""
     return await fetch_doc("index")
+
+
+def format_index_for_prompt(payload: DocPayload) -> str:
+    """Render an index payload into a flat string for system-prompt injection.
+
+    Includes the customer-facing body and the `agent_guidance` HTML-comment
+    blocks. Claude reads both — the body gives him the slug list with
+    one-line summaries; the agent_index comment gives him the canonical
+    slug→summary mapping.
+    """
+    parts = [payload.body.strip()]
+    parts.extend(g.strip() for g in payload.agent_guidance)
+    return "\n\n".join(p for p in parts if p)
 
 
 def clear_cache() -> None:

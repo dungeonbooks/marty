@@ -72,6 +72,23 @@ async def generate_ai_response(
         messages.append({"role": "user", "content": user_message})
 
         system_prompt = MARTY_SYSTEM_PROMPT
+
+        try:
+            from src.tools.docs.fetcher import fetch_index, format_index_for_prompt
+
+            index_payload = await fetch_index()
+            system_prompt += (
+                "\n\n## Operational documentation\n\n"
+                "Use the `get_doc` tool with one of the slugs below to fetch the "
+                "full file before answering customer questions about policies, "
+                "hours, store info, returns, events, or orders. Each fetched "
+                "doc returns a body plus `agent_guidance` directives — follow "
+                "those directives when crafting the reply.\n\n"
+                f"{format_index_for_prompt(index_payload)}"
+            )
+        except Exception as e:
+            logger.warning(f"docs index fetch failed, continuing without it: {e}")
+
         if customer_context:
             context_info = []
 
