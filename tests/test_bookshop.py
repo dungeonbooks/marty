@@ -20,27 +20,45 @@ def client():
 
 async def test_validate_isbn_valid(client):
     """A 308 response means the ISBN is valid."""
-    mock_response = httpx.Response(status_code=308, request=httpx.Request("HEAD", "https://bookshop.org/book/9780316769488"))
-    with patch("httpx.AsyncClient.head", new_callable=AsyncMock, return_value=mock_response):
+    mock_response = httpx.Response(
+        status_code=308,
+        request=httpx.Request("HEAD", "https://bookshop.org/book/9780316769488"),
+    )
+    with patch(
+        "httpx.AsyncClient.head", new_callable=AsyncMock, return_value=mock_response
+    ):
         assert await client.validate_isbn("9780316769488") is True
 
 
 async def test_validate_isbn_invalid(client):
     """A 404 response means the ISBN is invalid."""
-    mock_response = httpx.Response(status_code=404, request=httpx.Request("HEAD", "https://bookshop.org/book/0000000000000"))
-    with patch("httpx.AsyncClient.head", new_callable=AsyncMock, return_value=mock_response):
+    mock_response = httpx.Response(
+        status_code=404,
+        request=httpx.Request("HEAD", "https://bookshop.org/book/0000000000000"),
+    )
+    with patch(
+        "httpx.AsyncClient.head", new_callable=AsyncMock, return_value=mock_response
+    ):
         assert await client.validate_isbn("0000000000000") is False
 
 
 async def test_validate_isbn_timeout(client):
     """Timeout should return False (graceful degradation)."""
-    with patch("httpx.AsyncClient.head", new_callable=AsyncMock, side_effect=httpx.TimeoutException("timed out")):
+    with patch(
+        "httpx.AsyncClient.head",
+        new_callable=AsyncMock,
+        side_effect=httpx.TimeoutException("timed out"),
+    ):
         assert await client.validate_isbn("9780316769488") is False
 
 
 async def test_validate_isbn_http_error(client):
     """HTTP errors should return False (graceful degradation)."""
-    with patch("httpx.AsyncClient.head", new_callable=AsyncMock, side_effect=httpx.ConnectError("connection refused")):
+    with patch(
+        "httpx.AsyncClient.head",
+        new_callable=AsyncMock,
+        side_effect=httpx.ConnectError("connection refused"),
+    ):
         assert await client.validate_isbn("9780316769488") is False
 
 
@@ -49,16 +67,20 @@ async def test_validate_isbn_http_error(client):
 
 async def test_validate_isbns_finds_first_valid(client):
     """Should return the first valid ISBN from the list."""
+
     async def mock_validate(isbn):
         return isbn == "9780316769488"
 
     client.validate_isbn = mock_validate
-    result = await client.validate_isbns(["0000000000001", "9780316769488", "0000000000002"])
+    result = await client.validate_isbns(
+        ["0000000000001", "9780316769488", "0000000000002"]
+    )
     assert result == "9780316769488"
 
 
 async def test_validate_isbns_none_valid(client):
     """Should return None when no ISBNs are valid."""
+
     async def mock_validate(isbn):
         return False
 
@@ -94,7 +116,10 @@ def test_get_buy_url_default_affiliate(client):
 
 def test_get_search_url(client):
     url = client.get_search_url("The Catcher in the Rye", "108216")
-    assert url == "https://bookshop.org/search?keywords=The+Catcher+in+the+Rye&affiliate=108216"
+    assert (
+        url
+        == "https://bookshop.org/search?keywords=The+Catcher+in+the+Rye&affiliate=108216"
+    )
 
 
 def test_get_search_url_special_characters(client):

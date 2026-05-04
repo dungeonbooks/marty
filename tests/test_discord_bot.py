@@ -558,9 +558,7 @@ class TestCardsCog:
         """Test regex correctly extracts multiple card names."""
         import re
 
-        message_content = (
-            "I have [[Mox Sapphire]], [[Black Lotus]], and [[Time Walk]]"
-        )
+        message_content = "I have [[Mox Sapphire]], [[Black Lotus]], and [[Time Walk]]"
         cards = re.findall(r"\[\[([^\]]+)\]\]", message_content)
 
         assert len(cards) == 3
@@ -584,9 +582,7 @@ class TestCardsCog:
         """Test regex handles card names with special characters."""
         import re
 
-        message_content = (
-            "Check [[B.F.M. (Big Furry Monster)]] and [[Æther Vial]]"
-        )
+        message_content = "Check [[B.F.M. (Big Furry Monster)]] and [[Æther Vial]]"
         cards = re.findall(r"\[\[([^\]]+)\]\]", message_content)
 
         assert len(cards) == 2

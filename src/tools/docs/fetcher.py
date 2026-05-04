@@ -99,9 +99,10 @@ async def fetch_doc(slug: str, *, force: bool = False) -> DocPayload:
     url = f"{DOCS_BASE_URL}/{slug}.md"
     timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
 
-    async with aiohttp.ClientSession() as session, session.get(
-        url, timeout=timeout
-    ) as resp:
+    async with (
+        aiohttp.ClientSession() as session,
+        session.get(url, timeout=timeout) as resp,
+    ):
         if resp.status == 404:
             raise DocNotFoundError(slug)
         resp.raise_for_status()

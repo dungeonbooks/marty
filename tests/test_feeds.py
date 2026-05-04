@@ -87,9 +87,7 @@ class TestParseTenFootPole:
         assert summary == "Fallback summary text here."
 
     def test_truncates_long_description(self):
-        html = (
-            '<pre class="wp-block-preformatted">By A<br>B</pre>' f"<p>{'x' * 300}</p>"
-        )
+        html = f'<pre class="wp-block-preformatted">By A<br>B</pre><p>{"x" * 300}</p>'
         summary, _ = _parse_ten_foot_pole(self._make_entry(content_html=html))
         assert summary.endswith("...")
         # Metadata line + newline + truncated description
