@@ -45,6 +45,13 @@ class ToolRegistry:
         except ImportError as e:
             print(f"Warning: Could not register QueryOptimizerTool: {e}")
 
+        try:
+            from .docs.get_doc import GetDocTool
+
+            self.register(GetDocTool)
+        except ImportError as e:
+            print(f"Warning: Could not register GetDocTool: {e}")
+
     def register(self, tool_class: type[BaseTool]):
         """Register a tool class."""
         tool_instance = tool_class()
