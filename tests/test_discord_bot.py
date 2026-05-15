@@ -478,14 +478,17 @@ class TestCardsCog:
             scryfall_id="abc-123",
         )
 
-        with patch(
-            "src.discord_bot.mtg.search_card",
-            new_callable=AsyncMock,
-            return_value=mock_card,
-        ), patch(
-            "src.discord_bot.mtg.fetch_product",
-            new_callable=AsyncMock,
-            return_value=None,
+        with (
+            patch(
+                "src.discord_bot.mtg.search_card",
+                new_callable=AsyncMock,
+                return_value=mock_card,
+            ),
+            patch(
+                "src.discord_bot.mtg.fetch_product",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
         ):
             await cog.on_message(mock_message)
 
@@ -542,13 +545,16 @@ class TestCardsCog:
                 return mock_card2
             return None
 
-        with patch(
-            "src.discord_bot.mtg.search_card",
-            side_effect=mock_search_card,
-        ), patch(
-            "src.discord_bot.mtg.fetch_product",
-            new_callable=AsyncMock,
-            return_value=None,
+        with (
+            patch(
+                "src.discord_bot.mtg.search_card",
+                side_effect=mock_search_card,
+            ),
+            patch(
+                "src.discord_bot.mtg.fetch_product",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
         ):
             await cog.on_message(mock_message)
 
@@ -646,13 +652,16 @@ class TestCardsCog:
                 return mock_card
             return None
 
-        with patch(
-            "src.discord_bot.mtg.search_card",
-            side_effect=mock_search_card,
-        ), patch(
-            "src.discord_bot.mtg.fetch_product",
-            new_callable=AsyncMock,
-            return_value=None,
+        with (
+            patch(
+                "src.discord_bot.mtg.search_card",
+                side_effect=mock_search_card,
+            ),
+            patch(
+                "src.discord_bot.mtg.fetch_product",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
         ):
             await cog.on_message(mock_message)
 
@@ -871,7 +880,11 @@ class TestSendCardEmbed:
         }
 
         result = ToolResult(success=True, data=card_data, error=None)
-        tool_result = {"tool_name": "scryfall_api", "result": result, "tool_input": {"query": "Lightning Bolt"}}
+        tool_result = {
+            "tool_name": "scryfall_api",
+            "result": result,
+            "tool_input": {"query": "Lightning Bolt"},
+        }
 
         mock_thread = AsyncMock()
 
@@ -900,7 +913,11 @@ class TestSendCardEmbed:
         bot = MagicMock(spec=MartyBot)
 
         result = ToolResult(success=False, data=None, error="not found")
-        tool_result = {"tool_name": "scryfall_api", "result": result, "tool_input": {"query": "bogus"}}
+        tool_result = {
+            "tool_name": "scryfall_api",
+            "result": result,
+            "tool_input": {"query": "bogus"},
+        }
 
         mock_thread = AsyncMock()
 
@@ -917,11 +934,14 @@ class TestSendCardEmbed:
         bot = MagicMock(spec=MartyBot)
 
         result = ToolResult(success=True, data=["not", "a", "dict"], error=None)
-        tool_result = {"tool_name": "scryfall_api", "result": result, "tool_input": {"query": "test"}}
+        tool_result = {
+            "tool_name": "scryfall_api",
+            "result": result,
+            "tool_input": {"query": "test"},
+        }
 
         mock_thread = AsyncMock()
 
         await MartyBot._send_card_embed(bot, tool_result, mock_thread, "testuser")
 
         mock_thread.send.assert_not_called()
-

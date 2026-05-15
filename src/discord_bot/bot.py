@@ -471,9 +471,7 @@ class MartyBot(commands.Bot):
             )
             embed = await build_card_embed(card, self)
             await thread.send(embed=embed)
-            logger.info(
-                f"Sent card embed for '{card.name}' to {username}"
-            )
+            logger.info(f"Sent card embed for '{card.name}' to {username}")
         except Exception as e:
             logger.error(f"Error creating card embed: {e}")
 
@@ -574,9 +572,7 @@ def create_bot() -> MartyBot:
             await send_card_reply(ctx.message, card_result, bot)
             logger.info("Sent card embed via !card command")
 
-    @bot.tree.command(
-        name="card", description="Search for an MTG card and get details"
-    )
+    @bot.tree.command(name="card", description="Search for an MTG card and get details")
     @app_commands.describe(query="Card name to search for")
     async def card_slash(interaction: discord.Interaction, query: str) -> None:
         """Slash command to search for an MTG card."""
