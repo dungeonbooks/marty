@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.discord_bot.embeds import MIN_RATING_THRESHOLD, create_book_embed
-from src.discord_bot.mtg import CardsCog, build_card_embed, send_card_reply
+from src.discord_bot.mtg import CardsCog, send_card_reply
 from src.tools.scryfall.cards import Card, search_card
 
 
