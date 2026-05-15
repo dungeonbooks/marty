@@ -22,9 +22,11 @@ from ..database import (
     get_db_session,
 )
 from ..tools.external.hardcover import HardcoverTool
+from ..tools.manapool import fetch_product
+from ..tools.scryfall.cards import search_card
 from .embeds import create_book_embed, create_recent_releases_embed
 from .feeds import FeedsCog
-from .mtg import CardsCog
+from .mtg import CardsCog, send_card_reply
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +75,22 @@ async def get_recent_releases_shared(hardcover_tool):
     except Exception as e:
         logger.error(f"Error in shared recent releases: {e}")
         return None, "recent releases spell malfunctioned, try that again"
+
+
+async def search_card_shared(query: str, bot):
+    """Shared logic for card search commands."""
+    if not query.strip():
+        return None, "need a card name to search for"
+
+    try:
+        card = await search_card(query)
+        if card is None:
+            return None, f"couldn't find a card called '{query}'"
+        return card, None
+
+    except Exception as e:
+        logger.error(f"Error in shared card search: {e}")
+        return None, "scrying spell malfunctioned, try that again"
 
 
 class MartyBot(commands.Bot):
@@ -503,6 +521,47 @@ def create_bot() -> MartyBot:
 
         await interaction.followup.send(embed=embed)
         logger.info("Sent recent releases via /recent slash command")
+
+    @bot.command()
+    async def card(ctx: commands.Context, *, query: str) -> None:
+        """Search for an MTG card and display its information."""
+        async with ctx.typing():
+            card_result, error_msg = await search_card_shared(query, bot)
+
+            if error_msg:
+                await ctx.send(error_msg)
+                return
+
+            await send_card_reply(ctx.message, card_result, bot)
+            logger.info("Sent card embed via !card command")
+
+    @bot.tree.command(
+        name="card", description="Search for an MTG card and get details"
+    )
+    @app_commands.describe(query="Card name to search for")
+    async def card_slash(interaction: discord.Interaction, query: str) -> None:
+        """Slash command to search for an MTG card."""
+        await interaction.response.defer()
+
+        card_result, error_msg = await search_card_shared(query, bot)
+
+        if error_msg:
+            await interaction.followup.send(error_msg)
+            return
+
+        # Build embed directly for slash command (no message to reply to)
+        from .mtg import _build_card_embed
+
+        result = (
+            await fetch_product(card_result.scryfall_id, card_result.name)
+            if card_result.scryfall_id
+            else None
+        )
+        manapool_url = result.url if result else None
+        manapool_price = result.price if result else None
+        embed = _build_card_embed(card_result, bot, manapool_url, manapool_price)
+        await interaction.followup.send(embed=embed)
+        logger.info("Sent card embed via /card slash command")
 
     async def setup():
         await bot.add_cog(CardsCog(bot))

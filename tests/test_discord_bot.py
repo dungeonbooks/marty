@@ -631,3 +631,193 @@ class TestCardsCog:
 
             # Should have replied twice: once with card, once with not found
             assert mock_message.reply.call_count == 2
+
+
+class TestScryfallTool:
+    """Test cases for the ScryfallTool."""
+
+    @pytest.mark.asyncio
+    async def test_scryfall_tool_name(self):
+        """Test ScryfallTool has correct name."""
+        from src.tools.scryfall.tool import ScryfallTool
+
+        tool = ScryfallTool()
+        assert tool.name == "scryfall_api"
+
+    @pytest.mark.asyncio
+    async def test_scryfall_tool_description(self):
+        """Test ScryfallTool has a description."""
+        from src.tools.scryfall.tool import ScryfallTool
+
+        tool = ScryfallTool()
+        assert tool.description
+        assert "MTG" in tool.description or "card" in tool.description.lower()
+
+    @pytest.mark.asyncio
+    async def test_scryfall_tool_parameters(self):
+        """Test ScryfallTool parameters schema."""
+        from src.tools.scryfall.tool import ScryfallTool
+
+        tool = ScryfallTool()
+        assert "query" in tool.parameters
+        assert tool.parameters["query"]["type"] == "string"
+
+    @pytest.mark.asyncio
+    async def test_scryfall_tool_execute_success(self):
+        """Test ScryfallTool execute returns card data on success."""
+        from src.tools.scryfall.tool import ScryfallTool
+
+        mock_card = Card(
+            name="Lightning Bolt",
+            price="15.00",
+            url="https://scryfall.com/card/a25/141/lightning-bolt",
+            mana_cost="{R}",
+            image="https://example.com/bolt.jpg",
+            type_line="Instant",
+            oracle_text="Lightning Bolt deals 3 damage to any target.",
+            power=None,
+            toughness=None,
+            rarity="uncommon",
+            set_name="Masters 25",
+            scryfall_id="abc-123",
+        )
+
+        tool = ScryfallTool()
+
+        with patch(
+            "src.tools.scryfall.tool.search_card",
+            new_callable=AsyncMock,
+            return_value=mock_card,
+        ):
+            result = await tool.execute(query="Lightning Bolt")
+
+            assert result.success
+            assert result.data["name"] == "Lightning Bolt"
+            assert result.data["mana_cost"] == "{R}"
+            assert result.data["type_line"] == "Instant"
+            assert result.data["price"] == "15.00"
+
+    @pytest.mark.asyncio
+    async def test_scryfall_tool_execute_not_found(self):
+        """Test ScryfallTool execute returns error when card not found."""
+        from src.tools.scryfall.tool import ScryfallTool
+
+        tool = ScryfallTool()
+
+        with patch(
+            "src.tools.scryfall.tool.search_card",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            result = await tool.execute(query="Nonexistent Card XYZ")
+
+            assert not result.success
+            assert "not found" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_scryfall_tool_execute_empty_query(self):
+        """Test ScryfallTool execute returns error for empty query."""
+        from src.tools.scryfall.tool import ScryfallTool
+
+        tool = ScryfallTool()
+        result = await tool.execute(query="")
+
+        assert not result.success
+        assert "required" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_scryfall_tool_execute_whitespace_query(self):
+        """Test ScryfallTool execute returns error for whitespace query."""
+        from src.tools.scryfall.tool import ScryfallTool
+
+        tool = ScryfallTool()
+        result = await tool.execute(query="   ")
+
+        assert not result.success
+        assert "required" in result.error.lower()
+
+
+class TestSearchCardShared:
+    """Test cases for the search_card_shared helper."""
+
+    @pytest.mark.asyncio
+    async def test_search_card_shared_success(self):
+        """Test search_card_shared returns card on success."""
+        from src.discord_bot.bot import search_card_shared
+
+        mock_card = Card(
+            name="Lightning Bolt",
+            price="15.00",
+            url="https://scryfall.com/card/a25/141/lightning-bolt",
+            mana_cost="{R}",
+            image="https://example.com/bolt.jpg",
+            type_line="Instant",
+            oracle_text="Lightning Bolt deals 3 damage to any target.",
+            power=None,
+            toughness=None,
+            rarity="uncommon",
+            set_name="Masters 25",
+            scryfall_id="abc-123",
+        )
+
+        mock_bot = MagicMock()
+
+        with patch(
+            "src.discord_bot.bot.search_card",
+            new_callable=AsyncMock,
+            return_value=mock_card,
+        ):
+            card_result, error_msg = await search_card_shared("Lightning Bolt", mock_bot)
+
+            assert card_result is not None
+            assert error_msg is None
+            assert card_result.name == "Lightning Bolt"
+
+    @pytest.mark.asyncio
+    async def test_search_card_shared_not_found(self):
+        """Test search_card_shared returns error when card not found."""
+        from src.discord_bot.bot import search_card_shared
+
+        mock_bot = MagicMock()
+
+        with patch(
+            "src.discord_bot.bot.search_card",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            card_result, error_msg = await search_card_shared("Nonexistent Card", mock_bot)
+
+            assert card_result is None
+            assert error_msg is not None
+            assert "couldn't find" in error_msg
+
+    @pytest.mark.asyncio
+    async def test_search_card_shared_empty_query(self):
+        """Test search_card_shared returns error for empty query."""
+        from src.discord_bot.bot import search_card_shared
+
+        mock_bot = MagicMock()
+
+        card_result, error_msg = await search_card_shared("  ", mock_bot)
+
+        assert card_result is None
+        assert "need a card name" in error_msg
+
+
+class TestScryfallToolRegistry:
+    """Test that ScryfallTool is registered in the tool registry."""
+
+    def test_scryfall_tool_registered(self):
+        """Test ScryfallTool is in the tool registry."""
+        from src.tools import tool_registry
+
+        assert "scryfall_api" in tool_registry.list_tools()
+
+    def test_scryfall_tool_instantiation(self):
+        """Test ScryfallTool can be instantiated from registry."""
+        from src.tools import tool_registry
+
+        tool = tool_registry.get_tool("scryfall_api")
+        assert tool is not None
+        assert tool.name == "scryfall_api"
+
