@@ -22,9 +22,10 @@ from ..database import (
     get_db_session,
 )
 from ..tools.external.hardcover import HardcoverTool
+from ..tools.scryfall.cards import Card, search_card
 from .embeds import create_book_embed, create_recent_releases_embed
 from .feeds import FeedsCog
-from .mtg import CardsCog
+from .mtg import CardsCog, build_card_embed, send_card_reply
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,22 @@ async def get_recent_releases_shared(hardcover_tool):
     except Exception as e:
         logger.error(f"Error in shared recent releases: {e}")
         return None, "recent releases spell malfunctioned, try that again"
+
+
+async def search_card_shared(query: str):
+    """Shared logic for card search commands."""
+    if not query.strip():
+        return None, "need a card name to search for"
+
+    try:
+        card = await search_card(query)
+        if card is None:
+            return None, f"couldn't find a card called '{query}'"
+        return card, None
+
+    except Exception as e:
+        logger.exception("Error in shared card search: %s", e)
+        return None, "scrying spell malfunctioned, try that again"
 
 
 class MartyBot(commands.Bot):
@@ -382,6 +399,12 @@ class MartyBot(commands.Bot):
                 except Exception as e:
                     logger.warning(f"Failed to send book embed: {e}")
 
+            elif tool_name == "scryfall_api" and result and result.success:
+                try:
+                    await self._send_card_embed(tool_result, thread, username)
+                except Exception as e:
+                    logger.warning(f"Failed to send card embed: {e}")
+
     async def _send_book_embeds(self, tool_result: dict, thread, username: str) -> None:
         """Send book embeds for Hardcover API results."""
         result = tool_result.get("result")
@@ -419,6 +442,38 @@ class MartyBot(commands.Bot):
                         f"Book data that caused error: {book_data.get('cached_tags')} (type: {type(book_data.get('cached_tags'))})"
                     )
                     # Continue without the embed rather than failing completely
+
+    async def _send_card_embed(self, tool_result: dict, thread, username: str) -> None:
+        """Send a card embed for Scryfall API results."""
+        result = tool_result.get("result")
+
+        if not result or not result.success or not result.data:
+            return
+
+        card_data = result.data
+        if not isinstance(card_data, dict):
+            return
+
+        try:
+            card = Card(
+                name=card_data.get("name"),
+                price=card_data.get("price"),
+                url=card_data.get("url"),
+                mana_cost=card_data.get("mana_cost"),
+                image=card_data.get("image"),
+                type_line=card_data.get("type_line"),
+                oracle_text=card_data.get("oracle_text"),
+                power=card_data.get("power"),
+                toughness=card_data.get("toughness"),
+                rarity=card_data.get("rarity"),
+                set_name=card_data.get("set_name"),
+                scryfall_id=card_data.get("scryfall_id"),
+            )
+            embed = await build_card_embed(card, self)
+            await thread.send(embed=embed)
+            logger.info(f"Sent card embed for '{card.name}' to {username}")
+        except Exception as e:
+            logger.error(f"Error creating card embed: {e}")
 
 
 def create_bot() -> MartyBot:
@@ -503,6 +558,37 @@ def create_bot() -> MartyBot:
 
         await interaction.followup.send(embed=embed)
         logger.info("Sent recent releases via /recent slash command")
+
+    @bot.command()
+    async def card(ctx: commands.Context, *, query: str) -> None:
+        """Search for an MTG card and display its information."""
+        async with ctx.typing():
+            card_result, error_msg = await search_card_shared(query)
+
+            if error_msg:
+                await ctx.send(error_msg)
+                return
+
+            await send_card_reply(ctx.message, card_result, bot)
+            logger.info("Sent card embed via !card command")
+
+    @bot.tree.command(name="card", description="Search for an MTG card and get details")
+    @app_commands.describe(query="Card name to search for")
+    async def card_slash(interaction: discord.Interaction, query: str) -> None:
+        """Slash command to search for an MTG card."""
+        from .mtg import build_card_embed
+
+        await interaction.response.defer()
+
+        card_result, error_msg = await search_card_shared(query)
+
+        if error_msg:
+            await interaction.followup.send(error_msg)
+            return
+
+        embed = await build_card_embed(card_result, bot)
+        await interaction.followup.send(embed=embed)
+        logger.info("Sent card embed via /card slash command")
 
     async def setup():
         await bot.add_cog(CardsCog(bot))

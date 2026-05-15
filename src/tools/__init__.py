@@ -52,6 +52,13 @@ class ToolRegistry:
         except ImportError as e:
             print(f"Warning: Could not register GetDocTool: {e}")
 
+        try:
+            from .scryfall.tool import ScryfallTool
+
+            self.register(ScryfallTool)
+        except ImportError as e:
+            print(f"Warning: Could not register ScryfallTool: {e}")
+
     def register(self, tool_class: type[BaseTool]):
         """Register a tool class."""
         tool_instance = tool_class()
