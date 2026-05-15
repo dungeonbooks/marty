@@ -49,12 +49,14 @@ RARITY_COLORS = {
 }
 
 
-def _build_card_embed(
-    card: Card,
-    bot: Bot,
-    manapool_url: str | None = None,
-    manapool_price: str | None = None,
-) -> Embed:
+async def build_card_embed(card: Card, bot: Bot) -> Embed:
+    """Build a card embed, fetching manapool pricing internally."""
+    result = (
+        await fetch_product(card.scryfall_id, card.name) if card.scryfall_id else None
+    )
+    manapool_url = result.url if result else None
+    manapool_price = result.price if result else None
+
     mana_cost = _replace_mana_symbols(card.mana_cost, bot) if card.mana_cost else ""
     title = f"{card.name} {mana_cost}" if mana_cost else card.name
     description = card.type_line or ""
@@ -85,12 +87,7 @@ def _build_card_embed(
 
 
 async def send_card_reply(message: Message, card: Card, bot: Bot):
-    result = (
-        await fetch_product(card.scryfall_id, card.name) if card.scryfall_id else None
-    )
-    manapool_url = result.url if result else None
-    manapool_price = result.price if result else None
-    embed = _build_card_embed(card, bot, manapool_url, manapool_price)
+    embed = await build_card_embed(card, bot)
     await message.reply(embed=embed)
 
 

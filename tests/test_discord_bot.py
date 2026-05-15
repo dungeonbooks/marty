@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.discord_bot.embeds import MIN_RATING_THRESHOLD, create_book_embed
-from src.discord_bot.mtg import CardsCog, send_card_reply
+from src.discord_bot.mtg import CardsCog, build_card_embed, send_card_reply
 from src.tools.scryfall.cards import Card, search_card
 
 
@@ -307,7 +307,12 @@ class TestSendCardReply:
         mock_bot.user.avatar = MagicMock(url="https://example.com/avatar.jpg")
         mock_bot.emojis = []
 
-        await send_card_reply(mock_message, card, mock_bot)
+        with patch(
+            "src.discord_bot.mtg.fetch_product",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            await send_card_reply(mock_message, card, mock_bot)
 
         # Verify that reply was called
         mock_reply.assert_called_once()
@@ -349,7 +354,12 @@ class TestSendCardReply:
         mock_bot.user = None
         mock_bot.emojis = []
 
-        await send_card_reply(mock_message, card, mock_bot)
+        with patch(
+            "src.discord_bot.mtg.fetch_product",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            await send_card_reply(mock_message, card, mock_bot)
 
         mock_reply.assert_called_once()
         call_args = mock_reply.call_args
@@ -383,7 +393,12 @@ class TestSendCardReply:
         mock_bot = MagicMock()
         mock_bot.emojis = []
 
-        await send_card_reply(mock_message, card, mock_bot)
+        with patch(
+            "src.discord_bot.mtg.fetch_product",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            await send_card_reply(mock_message, card, mock_bot)
 
         mock_reply.assert_called_once()
         call_args = mock_reply.call_args
@@ -467,6 +482,10 @@ class TestCardsCog:
             "src.discord_bot.mtg.search_card",
             new_callable=AsyncMock,
             return_value=mock_card,
+        ), patch(
+            "src.discord_bot.mtg.fetch_product",
+            new_callable=AsyncMock,
+            return_value=None,
         ):
             await cog.on_message(mock_message)
 
@@ -526,6 +545,10 @@ class TestCardsCog:
         with patch(
             "src.discord_bot.mtg.search_card",
             side_effect=mock_search_card,
+        ), patch(
+            "src.discord_bot.mtg.fetch_product",
+            new_callable=AsyncMock,
+            return_value=None,
         ):
             await cog.on_message(mock_message)
 
@@ -626,6 +649,10 @@ class TestCardsCog:
         with patch(
             "src.discord_bot.mtg.search_card",
             side_effect=mock_search_card,
+        ), patch(
+            "src.discord_bot.mtg.fetch_product",
+            new_callable=AsyncMock,
+            return_value=None,
         ):
             await cog.on_message(mock_message)
 
@@ -760,14 +787,12 @@ class TestSearchCardShared:
             scryfall_id="abc-123",
         )
 
-        mock_bot = MagicMock()
-
         with patch(
             "src.discord_bot.bot.search_card",
             new_callable=AsyncMock,
             return_value=mock_card,
         ):
-            card_result, error_msg = await search_card_shared("Lightning Bolt", mock_bot)
+            card_result, error_msg = await search_card_shared("Lightning Bolt")
 
             assert card_result is not None
             assert error_msg is None
@@ -778,14 +803,12 @@ class TestSearchCardShared:
         """Test search_card_shared returns error when card not found."""
         from src.discord_bot.bot import search_card_shared
 
-        mock_bot = MagicMock()
-
         with patch(
             "src.discord_bot.bot.search_card",
             new_callable=AsyncMock,
             return_value=None,
         ):
-            card_result, error_msg = await search_card_shared("Nonexistent Card", mock_bot)
+            card_result, error_msg = await search_card_shared("Nonexistent Card")
 
             assert card_result is None
             assert error_msg is not None
@@ -796,9 +819,7 @@ class TestSearchCardShared:
         """Test search_card_shared returns error for empty query."""
         from src.discord_bot.bot import search_card_shared
 
-        mock_bot = MagicMock()
-
-        card_result, error_msg = await search_card_shared("  ", mock_bot)
+        card_result, error_msg = await search_card_shared("  ")
 
         assert card_result is None
         assert "need a card name" in error_msg
