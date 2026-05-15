@@ -22,10 +22,10 @@ from ..database import (
     get_db_session,
 )
 from ..tools.external.hardcover import HardcoverTool
-from ..tools.scryfall.cards import search_card
+from ..tools.scryfall.cards import Card, search_card
 from .embeds import create_book_embed, create_recent_releases_embed
 from .feeds import FeedsCog
-from .mtg import CardsCog, send_card_reply
+from .mtg import CardsCog, build_card_embed, send_card_reply
 
 logger = logging.getLogger(__name__)
 
@@ -399,6 +399,12 @@ class MartyBot(commands.Bot):
                 except Exception as e:
                     logger.warning(f"Failed to send book embed: {e}")
 
+            elif tool_name == "scryfall_api" and result and result.success:
+                try:
+                    await self._send_card_embed(tool_result, thread, username)
+                except Exception as e:
+                    logger.warning(f"Failed to send card embed: {e}")
+
     async def _send_book_embeds(self, tool_result: dict, thread, username: str) -> None:
         """Send book embeds for Hardcover API results."""
         result = tool_result.get("result")
@@ -436,6 +442,40 @@ class MartyBot(commands.Bot):
                         f"Book data that caused error: {book_data.get('cached_tags')} (type: {type(book_data.get('cached_tags'))})"
                     )
                     # Continue without the embed rather than failing completely
+
+    async def _send_card_embed(self, tool_result: dict, thread, username: str) -> None:
+        """Send a card embed for Scryfall API results."""
+        result = tool_result.get("result")
+
+        if not result or not result.success or not result.data:
+            return
+
+        card_data = result.data
+        if not isinstance(card_data, dict):
+            return
+
+        try:
+            card = Card(
+                name=card_data.get("name"),
+                price=card_data.get("price"),
+                url=card_data.get("url"),
+                mana_cost=card_data.get("mana_cost"),
+                image=card_data.get("image"),
+                type_line=card_data.get("type_line"),
+                oracle_text=card_data.get("oracle_text"),
+                power=card_data.get("power"),
+                toughness=card_data.get("toughness"),
+                rarity=card_data.get("rarity"),
+                set_name=card_data.get("set_name"),
+                scryfall_id=card_data.get("scryfall_id"),
+            )
+            embed = await build_card_embed(card, self)
+            await thread.send(embed=embed)
+            logger.info(
+                f"Sent card embed for '{card.name}' to {username}"
+            )
+        except Exception as e:
+            logger.error(f"Error creating card embed: {e}")
 
 
 def create_bot() -> MartyBot:

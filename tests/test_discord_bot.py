@@ -842,3 +842,86 @@ class TestScryfallToolRegistry:
         assert tool is not None
         assert tool.name == "scryfall_api"
 
+
+class TestSendCardEmbed:
+    """Test cases for MartyBot._send_card_embed method."""
+
+    @pytest.mark.asyncio
+    async def test_send_card_embed_posts_embed(self):
+        """Test that _send_card_embed sends a card embed to the thread."""
+        from src.discord_bot.bot import MartyBot
+        from src.tools.base import ToolResult
+
+        bot = MagicMock(spec=MartyBot)
+        bot._renamed_threads = set()
+
+        card_data = {
+            "name": "Lightning Bolt",
+            "mana_cost": "{R}",
+            "type_line": "Instant",
+            "oracle_text": "Lightning Bolt deals 3 damage to any target.",
+            "power": None,
+            "toughness": None,
+            "price": "15.00",
+            "rarity": "uncommon",
+            "set_name": "Masters 25",
+            "url": "https://scryfall.com/card/a25/141/lightning-bolt",
+            "image": "https://example.com/bolt.jpg",
+            "scryfall_id": "abc-123",
+        }
+
+        result = ToolResult(success=True, data=card_data, error=None)
+        tool_result = {"tool_name": "scryfall_api", "result": result, "tool_input": {"query": "Lightning Bolt"}}
+
+        mock_thread = AsyncMock()
+
+        with patch(
+            "src.discord_bot.bot.build_card_embed",
+            new_callable=AsyncMock,
+        ) as mock_build:
+            mock_embed = MagicMock()
+            mock_build.return_value = mock_embed
+
+            await MartyBot._send_card_embed(bot, tool_result, mock_thread, "testuser")
+
+            mock_build.assert_called_once()
+            call_args = mock_build.call_args
+            card_arg = call_args[0][0]
+            assert isinstance(card_arg, Card)
+            assert card_arg.name == "Lightning Bolt"
+            mock_thread.send.assert_called_once_with(embed=mock_embed)
+
+    @pytest.mark.asyncio
+    async def test_send_card_embed_skips_on_failure(self):
+        """Test that _send_card_embed does nothing when result is not successful."""
+        from src.discord_bot.bot import MartyBot
+        from src.tools.base import ToolResult
+
+        bot = MagicMock(spec=MartyBot)
+
+        result = ToolResult(success=False, data=None, error="not found")
+        tool_result = {"tool_name": "scryfall_api", "result": result, "tool_input": {"query": "bogus"}}
+
+        mock_thread = AsyncMock()
+
+        await MartyBot._send_card_embed(bot, tool_result, mock_thread, "testuser")
+
+        mock_thread.send.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_send_card_embed_skips_on_non_dict_data(self):
+        """Test that _send_card_embed does nothing when data is not a dict."""
+        from src.discord_bot.bot import MartyBot
+        from src.tools.base import ToolResult
+
+        bot = MagicMock(spec=MartyBot)
+
+        result = ToolResult(success=True, data=["not", "a", "dict"], error=None)
+        tool_result = {"tool_name": "scryfall_api", "result": result, "tool_input": {"query": "test"}}
+
+        mock_thread = AsyncMock()
+
+        await MartyBot._send_card_embed(bot, tool_result, mock_thread, "testuser")
+
+        mock_thread.send.assert_not_called()
+
