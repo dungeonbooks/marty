@@ -3,6 +3,12 @@
 #
 # To enable parallel CI steps, install GNU parallel:
 #   sudo apt-get update && sudo apt-get install -y parallel
+#
+# Test infra binds non-default host ports so it can coexist with other local
+# Postgres/Redis instances. Set TEST_PG_PORT / TEST_REDIS_PORT to override.
+
+TEST_PG_PORT := env_var_or_default("TEST_PG_PORT", "55432")
+TEST_REDIS_PORT := env_var_or_default("TEST_REDIS_PORT", "56379")
 
 # Show available commands
 default:
@@ -32,9 +38,9 @@ dev: test-infra-up
 run:
     uv run python src/main.py
 
-# Run all tests
+# Run unit tests (no infra). Use `just test-all` to include integration tests.
 test:
-    uv run pytest
+    uv run pytest -m "not integration"
 
 # Run tests with verbose output
 test-verbose:
@@ -121,8 +127,10 @@ test-infra-down:
 
 # Run all tests with test infra
 test-all: test-infra-up
-    TEST_DATABASE_URL=postgresql://marty_test:password@localhost:5432/marty_test TEST_REDIS_URL=redis://localhost:6379 uv run pytest
-    just test-infra-down
+    #!/usr/bin/env bash
+    # Tear down even when pytest fails, and still exit with its status.
+    trap 'just test-infra-down' EXIT
+    TEST_DATABASE_URL=postgresql+asyncpg://marty_test:password@localhost:{{TEST_PG_PORT}}/marty_test TEST_REDIS_URL=redis://localhost:{{TEST_REDIS_PORT}}/1 uv run pytest
 
 # Complete project setup
 setup: install-dev pre-commit-install
@@ -172,7 +180,8 @@ help:
     @echo "  just sms          - Test SMS functionality (⚠️ uses real API)"
     @echo ""
     @echo "Testing:"
-    @echo "  just test         - Run all tests"
+    @echo "  just test         - Run unit tests (no infra)"
+    @echo "  just test-all     - Run all tests incl. integration (starts infra)"
     @echo "  just test-cov     - Run tests with coverage"
     @echo "  just smoke-test   - Integration test (⚠️ costs money)"
     @echo ""
@@ -206,8 +215,10 @@ ci-full:
 
 # Run only integration tests (requires test infra)
 test-integration: test-infra-up
-    TEST_DATABASE_URL=postgresql://marty_test:password@localhost:5432/marty_test TEST_REDIS_URL=redis://localhost:6379 uv run pytest -m integration
-    just test-infra-down
+    #!/usr/bin/env bash
+    # Tear down even when pytest fails, and still exit with its status.
+    trap 'just test-infra-down' EXIT
+    TEST_DATABASE_URL=postgresql+asyncpg://marty_test:password@localhost:{{TEST_PG_PORT}}/marty_test TEST_REDIS_URL=redis://localhost:{{TEST_REDIS_PORT}}/1 uv run pytest -m integration
 
 # Watch for changes and restart development server
 watch:
