@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -33,6 +34,37 @@ logger = structlog.get_logger(__name__)
 # These return many books and are presented as a condensed list, not as one
 # embed per title.
 _LIST_BOOK_ACTIONS = frozenset({"get_trending_books", "get_recent_releases"})
+
+
+# Marty bolds book titles and nothing else (prompt style rule 4), so **...**
+# is the marker for "he just named a book".
+_BOLD_TITLE = re.compile(r"\*\*([^*\n]{3,80})\*\*")
+
+# Two embeds is already a wall; past that it buries the reply.
+_MAX_AUTO_EMBEDS = 2
+
+# The per-thread embed record is bookkeeping, not state worth keeping. Bounded
+# so a long-lived bot does not retain a set for every thread it has ever seen.
+_MAX_TRACKED_THREADS = 500
+
+
+def _normalize_title(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+
+
+def _titles_match(mentioned: str, resolved: str) -> bool:
+    """Guard against a search returning a confidently wrong book.
+
+    Without this, a bolded phrase that is not a book resolves to whatever
+    Hardcover ranks first and Marty appears to cite a title he never named.
+    """
+    a, b = _normalize_title(mentioned), _normalize_title(resolved)
+    if not a or not b:
+        return False
+    if a in b or b in a:
+        return True
+    at, bt = set(a.split()), set(b.split())
+    return len(at & bt) / max(len(at), len(bt)) >= 0.6
 
 
 def _is_embeddable(book: dict) -> bool:
@@ -122,6 +154,7 @@ class MartyBot(commands.Bot):
         intents.message_content = True
         super().__init__(command_prefix="!", intents=intents)
         self._renamed_threads: set[int] = set()
+        self._embedded_books: dict[int, set[str]] = {}
 
         # Initialize Hardcover API tool
         try:
@@ -332,6 +365,9 @@ class MartyBot(commands.Bot):
                             await self._handle_tool_results(
                                 tool_results, thread, username
                             )
+                            await self._send_embeds_for_mentioned_books(
+                                ai_response, thread, username
+                            )
 
                             logger.info(
                                 f"Created thread and sent Discord response to {username}"
@@ -364,6 +400,9 @@ class MartyBot(commands.Bot):
                         ):
                             await self._handle_tool_results(
                                 tool_results, message.channel, username
+                            )
+                            await self._send_embeds_for_mentioned_books(
+                                ai_response, message.channel, username
                             )
 
                         logger.info(f"Sent Discord response to {username}")
@@ -431,6 +470,81 @@ class MartyBot(commands.Bot):
                     await self._send_card_embed(tool_result, thread, username)
                 except Exception as e:
                     logger.warning(f"Failed to send card embed: {e}")
+
+    def _embedded_titles(self, thread_id: int | None) -> set[str] | None:
+        """Titles already embedded in one thread, or None if it has no id.
+
+        Returning None rather than falling back to a shared key keeps unrelated
+        id-less channels from deduping against each other.
+        """
+        if thread_id is None:
+            return None
+        already = self._embedded_books.get(thread_id)
+        if already is None:
+            already = self._embedded_books[thread_id] = set()
+            while len(self._embedded_books) > _MAX_TRACKED_THREADS:
+                oldest = next(iter(self._embedded_books))
+                self._embedded_books.pop(oldest)
+        return already
+
+    async def _send_embeds_for_mentioned_books(
+        self, response_text: str, thread, username: str
+    ) -> None:
+        """Embed every real book Marty names, whether or not he called a tool.
+
+        He answers from his own knowledge most of the time, so keying embeds off
+        tool calls missed the common case. Resolving each bolded title also
+        doubles as a reality check: a title that no catalogue carries gets no
+        embed, which is the visible difference between a real recommendation and
+        an invented one.
+        """
+        if not self.hardcover or thread is None:
+            return
+
+        already = self._embedded_titles(getattr(thread, "id", None))
+
+        sent = 0
+        for title in dict.fromkeys(_BOLD_TITLE.findall(response_text)):
+            if sent >= _MAX_AUTO_EMBEDS:
+                break
+
+            key = _normalize_title(title)
+            if not key:
+                continue
+            if already is not None:
+                if key in already:
+                    continue
+                already.add(key)
+
+            try:
+                result = await self.hardcover.execute(
+                    action="search_books", query=title, limit=1
+                )
+            except Exception as e:
+                logger.warning(f"Book lookup failed for '{title}': {e}")
+                continue
+
+            if not result.success or not result.data:
+                logger.info("mentioned_book_unresolved", title=title)
+                continue
+
+            book = result.data[0]
+            if not _is_embeddable(book) or not _titles_match(
+                title, book.get("title", "")
+            ):
+                logger.info(
+                    "mentioned_book_rejected",
+                    title=title,
+                    resolved=book.get("title"),
+                )
+                continue
+
+            try:
+                await thread.send(embed=create_book_embed(book))
+                sent += 1
+                logger.info(f"Auto-embedded '{book.get('title')}' for {username}")
+            except Exception as e:
+                logger.warning(f"Failed to send auto embed for '{title}': {e}")
 
     async def _send_book_embeds(self, tool_result: dict, thread, username: str) -> None:
         """Send book embeds for Hardcover API results."""
