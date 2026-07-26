@@ -67,7 +67,7 @@ logger = structlog.get_logger(__name__)
 def validate_environment_variables() -> None:
     """Validate required environment variables on startup."""
     required_vars = [
-        "ANTHROPIC_API_KEY",
+        "NEURALWATT_API_KEY",
         "HARDCOVER_API_TOKEN",
     ]
 
@@ -83,7 +83,8 @@ def validate_environment_variables() -> None:
 
     logger.info(f"Environment: {os.getenv('ENV', 'dev')}")
     logger.info(f"Database URL configured: {bool(os.getenv('DATABASE_URL'))}")
-    logger.info(f"Anthropic API key configured: {bool(os.getenv('ANTHROPIC_API_KEY'))}")
+    logger.info(f"LLM API key configured: {bool(app_config.NEURALWATT_API_KEY)}")
+    logger.info(f"LLM model: {app_config.MARTY_MODEL}")
     logger.info(
         f"Hardcover API key configured: {bool(os.getenv('HARDCOVER_API_TOKEN'))}"
     )

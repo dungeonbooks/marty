@@ -43,6 +43,16 @@ class BaseTool(ABC):
         """JSON schema for tool parameters."""
         pass
 
+    @property
+    def required_parameters(self) -> list[str]:
+        """Names of parameters the model must supply.
+
+        Defaults to every parameter. Override on tools with genuinely optional
+        arguments - a parameter listed as required that the model has no value
+        for gets an invented one.
+        """
+        return list(self.parameters.keys())
+
     @abstractmethod
     async def execute(self, **kwargs) -> ToolResult:
         """Execute the tool with given parameters."""

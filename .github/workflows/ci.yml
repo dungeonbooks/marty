@@ -42,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       HARDCOVER_API_TOKEN: ci-placeholder-token
-      ANTHROPIC_API_KEY: ci-placeholder-key
+      NEURALWATT_API_KEY: ci-placeholder-key
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v3

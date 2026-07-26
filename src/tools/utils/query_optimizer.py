@@ -1,18 +1,18 @@
 """
-Query Optimizer Tool - Uses Claude to optimize GraphQL queries based on user intent.
+Query Optimizer Tool - Uses an LLM to optimize GraphQL queries based on user intent.
 
 This tool analyzes natural language book search queries and provides optimized
 GraphQL parameters including search terms, sort orders, and filters.
 """
 
 import json
-import os
 import re
 from typing import Any
 
 import structlog
-from anthropic import AsyncAnthropic
+from openai import AsyncOpenAI
 
+from src.config import config
 from src.tools.base import BaseTool, ToolResult
 
 logger = structlog.get_logger(__name__)
@@ -34,7 +34,7 @@ WORD_TO_NUMBER_MAP = {
 
 class QueryOptimizerTool(BaseTool):
     """
-    Uses Claude to analyze user search queries and optimize GraphQL parameters.
+    Uses an LLM to analyze user search queries and optimize GraphQL parameters.
 
     This tool processes natural language queries like "Cassandra Khaw's new book"
     and returns optimized search parameters including temporal context awareness.
@@ -42,7 +42,22 @@ class QueryOptimizerTool(BaseTool):
 
     def __init__(self):
         super().__init__()
-        self.claude_client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY", ""))
+        self._llm_client: AsyncOpenAI | None = None
+
+    @property
+    def llm_client(self) -> AsyncOpenAI:
+        """Built on first use.
+
+        The registry instantiates every tool at import time, so constructing a
+        client in __init__ made an unset API key an ImportError for the whole
+        package rather than a runtime failure of this one tool.
+        """
+        if self._llm_client is None:
+            self._llm_client = AsyncOpenAI(
+                api_key=config.llm_api_key(),
+                base_url=config.NEURALWATT_BASE_URL,
+            )
+        return self._llm_client
 
     @property
     def name(self) -> str:
@@ -72,6 +87,11 @@ class QueryOptimizerTool(BaseTool):
                 },
             },
         }
+
+    @property
+    def required_parameters(self) -> list[str]:
+        """`context` is optional - execute() only reads `query` for validation."""
+        return ["query"]
 
     def validate_input(self, **kwargs) -> bool:
         """Validate input parameters."""
@@ -111,7 +131,7 @@ class QueryOptimizerTool(BaseTool):
             )
 
     async def _optimize_query(self, query: str, context: dict) -> dict[str, Any]:
-        """Use Claude to analyze and optimize the search query."""
+        """Use the LLM to analyze and optimize the search query."""
 
         optimization_prompt = f"""
 Analyze this book search query and optimize the GraphQL parameters for a book database search:
@@ -163,14 +183,15 @@ Return ONLY a JSON object with this exact structure:
 """
 
         try:
-            response = await self.claude_client.messages.create(
-                model="claude-sonnet-4-6",
+            response = await self.llm_client.chat.completions.create(
+                model=config.MARTY_MODEL,
                 max_tokens=400,
                 temperature=0.1,  # Low temperature for consistent structured output
                 messages=[{"role": "user", "content": optimization_prompt}],
+                reasoning_effort=config.MARTY_OPTIMIZER_REASONING_EFFORT,
             )
 
-            response_text = response.content[0].text.strip()
+            response_text = (response.choices[0].message.content or "").strip()
 
             # Extract JSON from response (handle potential markdown formatting)
             if "```json" in response_text:
@@ -189,10 +210,10 @@ Return ONLY a JSON object with this exact structure:
             return optimization
 
         except json.JSONDecodeError as e:
-            logger.warning(f"Claude returned invalid JSON, using fallback: {e}")
+            logger.warning(f"LLM returned invalid JSON, using fallback: {e}")
             return self._fallback_optimization(query)
         except Exception as e:
-            logger.warning(f"Claude optimization failed, using fallback: {e}")
+            logger.warning(f"LLM optimization failed, using fallback: {e}")
             return self._fallback_optimization(query)
 
     def _validate_optimization(self, optimization: dict, original_query: str) -> dict:
@@ -244,7 +265,7 @@ Return ONLY a JSON object with this exact structure:
         return optimization
 
     def _fallback_optimization(self, query: str) -> dict:
-        """Provide fallback optimization when Claude analysis fails."""
+        """Provide fallback optimization when LLM analysis fails."""
         # Simple pattern detection as fallback
         query_lower = query.lower()
         temporal_keywords = [

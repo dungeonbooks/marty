@@ -69,23 +69,23 @@ class ToolRegistry:
         tool_class = self._tools.get(name)
         return tool_class() if tool_class else None
 
-    def get_claude_tools(self) -> list[dict[str, Any]]:
-        """Get all tools formatted for Claude API."""
-        claude_tools = []
-        for tool_class in self._tools.values():
-            tool = tool_class()
-            claude_tools.append(
-                {
+    def get_openai_tools(self) -> list[dict[str, Any]]:
+        """Get all tools in the OpenAI function-calling envelope."""
+        return [
+            {
+                "type": "function",
+                "function": {
                     "name": tool.name,
                     "description": tool.description,
-                    "input_schema": {
+                    "parameters": {
                         "type": "object",
                         "properties": tool.parameters,
-                        "required": list(tool.parameters.keys()),
+                        "required": tool.required_parameters,
                     },
-                }
-            )
-        return claude_tools
+                },
+            }
+            for tool in (tool_class() for tool_class in self._tools.values())
+        ]
 
     def list_tools(self) -> list[str]:
         """List all registered tool names."""
