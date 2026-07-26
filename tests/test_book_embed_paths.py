@@ -69,9 +69,14 @@ class TestEmbeddedTitlesCache:
     def test_missing_thread_id_gets_no_cache(self, bot):
         assert bot._embedded_titles(None) is None
 
-    def test_id_less_channels_do_not_dedupe_against_each_other(self, bot):
-        assert bot._embedded_titles(None) is bot._embedded_titles(None)
+    def test_id_less_channel_creates_no_cache_state(self, bot):
+        """A shared bucket under a `None` key would have made unrelated id-less
+        channels dedupe against each other, so no entry may be created at all."""
+        bot._embedded_titles(None)
+        bot._embedded_titles(None)
+
         assert bot._embedded_books == {}
+        assert None not in bot._embedded_books
 
     def test_same_thread_returns_same_set(self, bot):
         first = bot._embedded_titles(7)
