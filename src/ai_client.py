@@ -176,6 +176,70 @@ def _log_usage(response) -> None:
     )
 
 
+# Fields Hardcover returns that the model has no use for. `editions` alone is
+# ~15k characters per book (every ISBN, printing and format), and a five-result
+# search came to 108,799 characters - roughly 27k tokens billed as input, on
+# every search. The embed builder and the enricher still read these off
+# `result.data`; only the model's view is trimmed.
+_BULK_TOOL_RESULT_KEYS = frozenset(
+    {"editions", "cached_tags", "cached_contributors", "contributions"}
+)
+
+# A blurb is for pitching one book, not reproducing the jacket copy.
+_MAX_TEXT_FIELD_CHARS = 400
+
+# Overall budget for one tool result. Ten trending books still came to 16k
+# characters after dropping bulk keys, because descriptions dominate.
+_MAX_TOOL_RESULT_CHARS = 6000
+
+
+def _strip_bulk_fields(value):
+    """Recursively drop bulk keys and clip long prose the model never needs in full."""
+    if isinstance(value, dict):
+        return {
+            k: _strip_bulk_fields(v)
+            for k, v in value.items()
+            if k not in _BULK_TOOL_RESULT_KEYS
+        }
+    if isinstance(value, list):
+        return [_strip_bulk_fields(v) for v in value]
+    if isinstance(value, str) and len(value) > _MAX_TEXT_FIELD_CHARS:
+        return value[:_MAX_TEXT_FIELD_CHARS].rstrip() + "..."
+    return value
+
+
+def _render_tool_result(data) -> str:
+    """Render a tool result for the model within a fixed character budget.
+
+    A list of results is trimmed by dropping whole trailing entries, so the
+    model never receives a record cut off mid-structure. The first entry is
+    always kept so a result is never empty, which means it can overflow the
+    budget on its own; that case falls through to the character truncation
+    below rather than returning over budget.
+    """
+    trimmed = _strip_bulk_fields(data)
+
+    note = ""
+    if isinstance(trimmed, list):
+        kept: list = []
+        for item in trimmed:
+            candidate = kept + [item]
+            if kept and len(str(candidate)) > _MAX_TOOL_RESULT_CHARS:
+                break
+            kept = candidate
+        if len(kept) < len(trimmed):
+            note = f"\n\n[showing {len(kept)} of {len(trimmed)} results]"
+        trimmed = kept
+
+    rendered = str(trimmed)
+    if len(rendered) > _MAX_TOOL_RESULT_CHARS:
+        rendered = (
+            rendered[:_MAX_TOOL_RESULT_CHARS]
+            + f"\n\n[truncated - {len(rendered)} chars total]"
+        )
+    return rendered + note
+
+
 def _log_hardcover_detail(
     tool_name: str, tool_input: dict, result_data, success: bool
 ) -> None:
@@ -350,7 +414,9 @@ async def generate_ai_response(
                 )
 
                 content = (
-                    str(result.data) if result.success else f"Error: {result.error}"
+                    _render_tool_result(result.data)
+                    if result.success
+                    else f"Error: {result.error}"
                 )
                 messages.append(
                     {
