@@ -58,20 +58,55 @@ class TestParse:
         assert p.frontmatter == {}
         assert "just markdown text" in p.body
 
-    def test_extracts_html_comments_as_agent_guidance(self):
+    def test_extracts_agent_guidance_from_comments(self):
         raw = (
             "---\npublish: true\n---\n"
             "visible body\n\n"
-            "<!-- agent: do thing 1 -->\n\n"
-            "more body\n\n"
-            "<!-- agent: do thing 2 -->\n"
+            "<!--\nagent_guidance:\n  - do thing 1\n  - do thing 2\n-->\n\n"
+            "more body\n"
         )
         p = _parse("x", raw)
         assert "visible body" in p.body
         assert "more body" in p.body
         assert "<!--" not in p.body
-        assert any("do thing 1" in g for g in p.agent_guidance)
-        assert any("do thing 2" in g for g in p.agent_guidance)
+        assert p.agent_guidance == ["do thing 1", "do thing 2"]
+
+    def test_human_only_keys_never_reach_the_agent(self):
+        """`todo` and `status` are author notes. They are hidden from customers
+        by living in a comment, but they are not directives and must not be fed
+        to the model as if they were."""
+        raw = (
+            "---\npublish: true\n---\n"
+            "body\n\n"
+            "<!--\n"
+            "agent_guidance:\n  - quote hours directly\n"
+            "todo:\n  - confirm payment methods\n"
+            "status:\n  - draft\n"
+            "-->\n"
+        )
+        p = _parse("x", raw)
+
+        assert p.agent_guidance == ["quote hours directly"]
+        assert set(p.agent_directives) == {"agent_guidance"}
+        assert "confirm payment methods" not in str(p.agent_directives)
+        assert "draft" not in str(p.agent_directives)
+
+    def test_unknown_agent_prefixed_key_is_kept(self):
+        """The prefix is the contract, so a new directive needs no code change."""
+        raw = "---\npublish: true\n---\nbody\n<!--\nagent_escalation:\n  - ping staff\n-->\n"
+        p = _parse("x", raw)
+        assert p.agent_directives["agent_escalation"] == ["ping staff"]
+
+    def test_malformed_comment_drops_directives_rather_than_leaking(self):
+        raw = "---\npublish: true\n---\nbody\n<!--\nagent_guidance: [unclosed\n-->\n"
+        p = _parse("x", raw)
+        assert p.agent_directives == {}
+        assert p.agent_guidance == []
+
+    def test_prose_comment_is_not_treated_as_directives(self):
+        raw = "---\npublish: true\n---\nbody\n<!-- just a note to self -->\n"
+        p = _parse("x", raw)
+        assert p.agent_directives == {}
 
     def test_empty_frontmatter_yields_empty_dict(self):
         raw = "---\n\n---\nbody"
@@ -91,7 +126,7 @@ class TestCachePolicy:
                 slug=slug,
                 frontmatter={"publish": True},
                 body="b",
-                agent_guidance=[],
+                agent_directives={},
                 fetched_at=time.time(),
             )
 
@@ -110,7 +145,7 @@ class TestCachePolicy:
                 slug="x",
                 frontmatter={"publish": True, "title": "old"},
                 body="old body",
-                agent_guidance=[],
+                agent_directives={},
                 fetched_at=time.time() - CACHE_TTL_SECONDS - 1,
             ),
         )
@@ -118,7 +153,7 @@ class TestCachePolicy:
             slug="x",
             frontmatter={"publish": True, "title": "new"},
             body="new body",
-            agent_guidance=[],
+            agent_directives={},
             fetched_at=time.time(),
         )
 
@@ -136,7 +171,7 @@ class TestCachePolicy:
                 slug="x",
                 frontmatter={"publish": True},
                 body="cached",
-                agent_guidance=[],
+                agent_directives={},
                 fetched_at=time.time(),
             ),
         )
@@ -144,7 +179,7 @@ class TestCachePolicy:
             slug="x",
             frontmatter={"publish": True},
             body="forced",
-            agent_guidance=[],
+            agent_directives={},
             fetched_at=time.time(),
         )
         monkeypatch.setattr(
@@ -165,7 +200,7 @@ class TestPublishGate:
                     slug="x",
                     frontmatter={"publish": False},
                     body="b",
-                    agent_guidance=[],
+                    agent_directives={},
                     fetched_at=time.time(),
                 )
             ),
@@ -183,7 +218,7 @@ class TestPublishGate:
                     slug="x",
                     frontmatter={"title": "no publish field"},
                     body="b",
-                    agent_guidance=[],
+                    agent_directives={},
                     fetched_at=time.time(),
                 )
             ),
@@ -201,7 +236,7 @@ class TestPublishGate:
                     slug="x",
                     frontmatter={"publish": False},
                     body="b",
-                    agent_guidance=[],
+                    agent_directives={},
                     fetched_at=time.time(),
                 )
             ),
@@ -229,7 +264,7 @@ class TestErrorPaths:
                 slug="x",
                 frontmatter={"publish": True, "title": "stale"},
                 body="stale body",
-                agent_guidance=[],
+                agent_directives={},
                 fetched_at=time.time() - CACHE_TTL_SECONDS - 1,
             ),
         )
@@ -260,7 +295,7 @@ class TestErrorPaths:
                 slug="x",
                 frontmatter={"publish": True},
                 body="stale body",
-                agent_guidance=[],
+                agent_directives={},
                 fetched_at=time.time() - CACHE_TTL_SECONDS - 1,
             ),
         )
@@ -279,7 +314,7 @@ class TestErrorPaths:
                 slug="x",
                 frontmatter={"publish": True},
                 body="stale body",
-                agent_guidance=[],
+                agent_directives={},
                 fetched_at=time.time() - CACHE_TTL_SECONDS - 1,
             ),
         )
@@ -301,7 +336,7 @@ class TestErrorPaths:
                 slug="x",
                 frontmatter={"publish": True},
                 body="stale body",
-                agent_guidance=[],
+                agent_directives={},
                 fetched_at=time.time() - CACHE_TTL_SECONDS - 1,
             ),
         )
@@ -337,7 +372,7 @@ class TestStampedePrevention:
                 slug=slug,
                 frontmatter={"publish": True},
                 body=f"body-{call_count}",
-                agent_guidance=[],
+                agent_directives={},
                 fetched_at=time.time(),
             )
 
@@ -349,25 +384,37 @@ class TestStampedePrevention:
 
 
 class TestFormatIndexForPrompt:
-    def test_combines_body_and_guidance(self):
+    def test_combines_body_and_index(self):
         payload = DocPayload(
             slug="index",
             frontmatter={"publish": True},
             body="body content",
-            agent_guidance=["agent_index: foo: bar"],
+            agent_directives={"agent_index": {"store": "hours and location"}},
             fetched_at=time.time(),
         )
         out = format_index_for_prompt(payload)
         assert "body content" in out
         assert "agent_index" in out
+        assert "store: hours and location" in out
 
     def test_skips_empty_parts(self):
         payload = DocPayload(
             slug="index",
             frontmatter={"publish": True},
             body="",
-            agent_guidance=["only guidance"],
+            agent_directives={"agent_index": ["only guidance"]},
             fetched_at=time.time(),
         )
         out = format_index_for_prompt(payload)
-        assert out == "only guidance"
+        assert out == "agent_index:\n  only guidance"
+
+    def test_index_todo_stays_out_of_the_system_prompt(self):
+        payload = DocPayload(
+            slug="index",
+            frontmatter={"publish": True},
+            body="body content",
+            agent_directives={"agent_index": {"store": "hours"}},
+            fetched_at=time.time(),
+        )
+        # `todo` was filtered at parse time, so it cannot reach the prompt here.
+        assert "todo" not in format_index_for_prompt(payload)

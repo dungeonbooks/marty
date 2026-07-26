@@ -206,7 +206,7 @@ def mock_docs_index():
         slug="index",
         frontmatter={"publish": True, "title": "test index"},
         body="",
-        agent_guidance=[],
+        agent_directives={},
         fetched_at=0.0,
     )
     with patch("src.tools.docs.fetcher.fetch_index", AsyncMock(return_value=stub)):
