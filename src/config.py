@@ -43,7 +43,11 @@ class Config:
     MARTY_OPTIMIZER_REASONING_EFFORT: str = os.getenv(
         "MARTY_OPTIMIZER_REASONING_EFFORT", "high"
     )
-    MARTY_MAX_TOKENS: int = int(os.getenv("MARTY_MAX_TOKENS", "500"))
+    # Ceiling, not a target: the prompt caps replies at 1-5 sentences and
+    # glm-5.2-short lands around 100 output tokens either way. The headroom is
+    # for reasoning models, which bill thinking against this budget - at 500
+    # kimi-k2.6 spent the whole allowance thinking and returned empty content.
+    MARTY_MAX_TOKENS: int = int(os.getenv("MARTY_MAX_TOKENS", "1500"))
     MARTY_TEMPERATURE: float = float(os.getenv("MARTY_TEMPERATURE", "0.7"))
 
     # Hardcover API Configuration

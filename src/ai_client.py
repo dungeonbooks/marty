@@ -175,6 +175,34 @@ def _log_usage(response) -> None:
         energy_joules=energy.get("energy_joules") if isinstance(energy, dict) else None,
     )
 
+    _warn_if_truncated(response)
+
+
+def _warn_if_truncated(response) -> None:
+    """Flag replies cut off by the token ceiling.
+
+    A reasoning model bills thinking against `max_tokens`, so too small a budget
+    shows up as an empty reply and then the generic fallback, with nothing in the
+    logs naming the cause. This makes that case searchable.
+    """
+    choices = getattr(response, "choices", None) or []
+    if not choices:
+        return
+
+    choice = choices[0]
+    if getattr(choice, "finish_reason", None) != "length":
+        return
+
+    message = getattr(choice, "message", None)
+    content = (getattr(message, "content", None) or "").strip()
+    logger.warning(
+        "llm_response_truncated",
+        model=getattr(response, "model", None),
+        max_tokens=config.MARTY_MAX_TOKENS,
+        empty_content=not content,
+        detail="hit the token ceiling; raise MARTY_MAX_TOKENS if this recurs",
+    )
+
 
 # Fields Hardcover returns that the model has no use for. `editions` alone is
 # ~15k characters per book (every ISBN, printing and format), and a five-result
