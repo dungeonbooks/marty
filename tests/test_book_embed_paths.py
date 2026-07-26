@@ -211,9 +211,14 @@ class TestSendEmbedsForMentionedBooks:
         assert thread.send.await_count == 0
 
     @pytest.mark.asyncio
-    async def test_missing_thread_still_resolves_without_crashing(self, bot):
+    async def test_missing_thread_returns_before_any_lookup(self, bot):
+        """No thread means nowhere to send, so it bails before spending a
+        Hardcover call rather than resolving and discarding the result."""
         bot.hardcover.execute = AsyncMock(return_value=hardcover_hit(DUNE))
+
         await bot._send_embeds_for_mentioned_books("**Dune**", None, "n")
+
+        bot.hardcover.execute.assert_not_awaited()
 
 
 class TestMentionedTitleAliasing:
