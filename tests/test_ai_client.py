@@ -148,15 +148,15 @@ class TestGenerateAIResponse:
 
         assert response == ("hey John! looking for any specific genre?", [])
 
-        # Check that customer context was included in system prompt
+        # Per-request context rides on the final user turn, not the system message
         call_args = mock_llm_api.chat.completions.create.call_args
-        system_prompt = call_args[1]["messages"][0]["content"]
-        assert "Customer name: John Doe" in system_prompt
-        assert "Phone: +1234567890" in system_prompt
-        assert "Customer ID: 123" in system_prompt
-        assert "Current time: 2024-01-15T10:30:00Z" in system_prompt
-        assert "Current date: 2024-01-15" in system_prompt
-        assert "Day of week: Monday" in system_prompt
+        user_turn = call_args[1]["messages"][-1]["content"]
+        assert "Customer name: John Doe" in user_turn
+        assert "Phone: +1234567890" in user_turn
+        assert "Customer ID: 123" in user_turn
+        assert "Current time: 2024-01-15T10:30:00Z" in user_turn
+        assert "Current date: 2024-01-15" in user_turn
+        assert "Day of week: Monday" in user_turn
 
     @pytest.mark.asyncio
     async def test_generate_ai_response_with_cultural_name(
@@ -178,10 +178,10 @@ class TestGenerateAIResponse:
 
         assert response == ("¡Hola José García-López!", [])
 
-        # Check that full name is passed to Claude for cultural handling
+        # Full name is passed through for the model to handle culturally
         call_args = mock_llm_api.chat.completions.create.call_args
-        system_prompt = call_args[1]["messages"][0]["content"]
-        assert "Customer name: José García-López" in system_prompt
+        user_turn = call_args[1]["messages"][-1]["content"]
+        assert "Customer name: José García-López" in user_turn
 
     @pytest.mark.asyncio
     async def test_generate_ai_response_single_name(self, mock_llm_api, llm_response):
@@ -203,8 +203,8 @@ class TestGenerateAIResponse:
 
         # Check that single name is handled correctly
         call_args = mock_llm_api.chat.completions.create.call_args
-        system_prompt = call_args[1]["messages"][0]["content"]
-        assert "Customer name: Madonna" in system_prompt
+        user_turn = call_args[1]["messages"][-1]["content"]
+        assert "Customer name: Madonna" in user_turn
 
     @pytest.mark.asyncio
     async def test_generate_ai_response_no_customer_context(
@@ -222,9 +222,9 @@ class TestGenerateAIResponse:
 
         # Check that only base system prompt is used
         call_args = mock_llm_api.chat.completions.create.call_args
-        system_prompt = call_args[1]["messages"][0]["content"]
-        assert "Customer Context:" not in system_prompt
-        assert "Current Time & Date:" not in system_prompt
+        user_turn = call_args[1]["messages"][-1]["content"]
+        assert "Customer Context:" not in user_turn
+        assert "Current Time & Date:" not in user_turn
 
     @pytest.mark.asyncio
     async def test_generate_ai_response_empty_customer_context(
@@ -242,9 +242,9 @@ class TestGenerateAIResponse:
 
         # Check that empty context doesn't add extra sections
         call_args = mock_llm_api.chat.completions.create.call_args
-        system_prompt = call_args[1]["messages"][0]["content"]
-        assert "Customer Context:" not in system_prompt
-        assert "Current Time & Date:" not in system_prompt
+        user_turn = call_args[1]["messages"][-1]["content"]
+        assert "Customer Context:" not in user_turn
+        assert "Current Time & Date:" not in user_turn
 
     @pytest.mark.asyncio
     async def test_generate_ai_response_minimal_context(
@@ -267,10 +267,10 @@ class TestGenerateAIResponse:
 
         # Check that only customer_id is included
         call_args = mock_llm_api.chat.completions.create.call_args
-        system_prompt = call_args[1]["messages"][0]["content"]
-        assert "Customer ID: 999" in system_prompt
-        assert "Customer name:" not in system_prompt
-        assert "Phone:" not in system_prompt
+        user_turn = call_args[1]["messages"][-1]["content"]
+        assert "Customer ID: 999" in user_turn
+        assert "Customer name:" not in user_turn
+        assert "Phone:" not in user_turn
 
     @pytest.mark.asyncio
     async def test_generate_ai_response_api_error(self, mock_llm_api):
@@ -324,8 +324,10 @@ class TestGenerateAIResponse:
         assert call_args[1]["tools"]
 
     @pytest.mark.asyncio
-    async def test_system_prompt_with_context(self, mock_llm_api, llm_response):
-        """Test system prompt construction with customer context."""
+    async def test_context_rides_on_user_turn_not_system(
+        self, mock_llm_api, llm_response
+    ):
+        """Per-request context must sit on the user turn, never in the system message."""
         customer_context = {
             "name": "John",
             "phone": "+1234567890",
@@ -342,17 +344,23 @@ class TestGenerateAIResponse:
 
         call_args = mock_llm_api.chat.completions.create.call_args
         system_prompt = call_args[1]["messages"][0]["content"]
+        user_turn = call_args[1]["messages"][-1]["content"]
 
-        # Check base prompt is included
-        assert len(system_prompt) > 1000  # Should be substantial
+        # The persona still lives in the system message
+        assert len(system_prompt) > 1000
+        assert "martinus trismegistus" in system_prompt
 
-        # Check customer context is appended
-        assert "Customer Context:" in system_prompt
-        assert "Current Time & Date:" in system_prompt
-        assert "Current time: 2024-01-15T10:30:00Z" in system_prompt
-        assert "Current date: 2024-01-15" in system_prompt
-        assert "Day of week: Monday" in system_prompt
-        assert "Customer name: John" in system_prompt
+        # ...but nothing per-request does
+        assert "Customer Context:" not in system_prompt
+        assert "Current Time & Date:" not in system_prompt
+        assert "John" not in system_prompt
+
+        assert "Customer Context:" in user_turn
+        assert "Current Time & Date:" in user_turn
+        assert "Current time: 2024-01-15T10:30:00Z" in user_turn
+        assert "Current date: 2024-01-15" in user_turn
+        assert "Day of week: Monday" in user_turn
+        assert "Customer name: John" in user_turn
 
 
 class TestEnvironmentIntegration:
@@ -417,39 +425,47 @@ class TestPromptOrdering:
     """
 
     @pytest.mark.asyncio
-    async def test_persona_precedes_volatile_context(self, mock_llm_api, llm_response):
+    async def test_system_prompt_identical_across_customers(
+        self, mock_llm_api, llm_response
+    ):
+        """The cached head must be byte-identical for every customer."""
         mock_llm_api.chat.completions.create.return_value = llm_response("ok")
+
         await generate_ai_response(
-            "hi", [], {"name": "John", "current_date": "2024-01-15"}
+            "hi", [], {"name": "John", "current_time": "2024-01-15T10:00:00Z"}
         )
-        system_prompt = mock_llm_api.chat.completions.create.call_args[1]["messages"][
-            0
-        ]["content"]
-        assert system_prompt.index("martinus trismegistus") < system_prompt.index(
-            "Customer Context:"
-        )
-        assert system_prompt.index("Customer Context:") < system_prompt.index(
-            "Current Time & Date:"
-        )
-
-    @pytest.mark.asyncio
-    async def test_prefix_identical_across_customers(self, mock_llm_api, llm_response):
-        """Everything up to the per-customer suffix must be byte-identical."""
-        mock_llm_api.chat.completions.create.return_value = llm_response("ok")
-
-        await generate_ai_response("hi", [], {"name": "John"})
         first = mock_llm_api.chat.completions.create.call_args[1]["messages"][0][
             "content"
         ]
 
-        await generate_ai_response("hi", [], {"name": "Jane"})
+        await generate_ai_response(
+            "hi", [], {"name": "Jane", "current_time": "2024-06-02T22:31:00Z"}
+        )
         second = mock_llm_api.chat.completions.create.call_args[1]["messages"][0][
             "content"
         ]
 
-        shared = first.split("Customer Context:")[0]
-        assert shared == second.split("Customer Context:")[0]
-        assert first != second
+        assert first == second
+
+    @pytest.mark.asyncio
+    async def test_history_precedes_volatile_context(self, mock_llm_api, llm_response):
+        """Context goes on the final turn so history stays a stable growing prefix."""
+        from datetime import datetime
+
+        mock_llm_api.chat.completions.create.return_value = llm_response("ok")
+        history = [
+            ConversationMessage(
+                role="user", content="earlier question", timestamp=datetime.now()
+            )
+        ]
+
+        await generate_ai_response("hi", history, {"name": "John"})
+
+        messages = mock_llm_api.chat.completions.create.call_args[1]["messages"]
+        assert messages[1]["content"] == "earlier question"
+        assert "Customer Context:" not in messages[1]["content"]
+        assert "Customer Context:" in messages[-1]["content"]
+        assert messages[-1]["content"].endswith("hi")
 
     @pytest.mark.asyncio
     async def test_tools_sent_on_every_call(self, mock_llm_api, llm_response):
