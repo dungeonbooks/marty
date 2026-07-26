@@ -469,6 +469,28 @@ class TestToolResultRendering:
 
         assert _render_tool_result(data) == str(data)
 
+    def test_oversized_first_entry_is_still_truncated(self):
+        """The first entry is kept unconditionally so a result is never empty,
+        which means it can blow the budget on its own. It used to return in full
+        and skip the character truncation entirely."""
+        fat = {f"k{i}": "v" * 300 for i in range(60)}
+        data = [fat, {"title": "Dune"}, {"title": "Piranesi"}]
+
+        rendered = _render_tool_result(data)
+
+        assert "[truncated" in rendered
+        assert "[showing 1 of 3 results]" in rendered
+        assert len(rendered) < len(str(data))
+
+    def test_oversized_lone_entry_is_truncated(self):
+        """No trailing entries to drop, so only the character budget applies."""
+        fat = {f"k{i}": "v" * 300 for i in range(60)}
+
+        rendered = _render_tool_result([fat])
+
+        assert "[truncated" in rendered
+        assert "[showing" not in rendered
+
 
 class TestToolGating:
     """rename_thread must not be offered before there is a topic to name."""
