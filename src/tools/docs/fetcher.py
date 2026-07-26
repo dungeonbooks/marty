@@ -9,15 +9,15 @@ content if asked for directly.
 """
 
 import asyncio
-import logging
 import re
 import time
 from dataclasses import dataclass
 
 import aiohttp
+import structlog
 import yaml
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 DOCS_BASE_URL = "https://raw.githubusercontent.com/dungeonbooks/policies/main"
 CACHE_TTL_SECONDS = 15 * 60
@@ -42,13 +42,58 @@ _FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n?(.*)", re.DOTALL)
 _HTML_COMMENT_RE = re.compile(r"<!--(.*?)-->", re.DOTALL)
 
 
+def _as_lines(value) -> list[str]:
+    """Flatten a directive value to lines, whatever shape the author used.
+
+    Authors write these by hand, so a key may hold a list, a bare string, or a
+    mapping. Rendering all three the same way keeps a formatting slip in the
+    vault from dropping a directive silently.
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [line for line in (ln.strip() for ln in value.splitlines()) if line]
+    if isinstance(value, dict):
+        return [_pair(k, v) for k, v in value.items()]
+    if isinstance(value, list):
+        lines = []
+        for item in value:
+            # An unquoted directive containing ": " parses as a mapping rather
+            # than a string, so a list entry can arrive as a dict. Render it
+            # back to the sentence the author wrote instead of a dict repr.
+            if isinstance(item, dict):
+                lines.extend(_pair(k, v) for k, v in item.items())
+            elif str(item).strip():
+                lines.append(str(item).strip())
+        return lines
+    return [str(value)]
+
+
+def _pair(key, value) -> str:
+    """Render a mapping entry as the sentence the author wrote.
+
+    `text: more text` parses to a key and a value, so both halves are joined
+    back together. `text:` with nothing after it parses to a null value, and
+    emitting "text: None" would put a word in the author's mouth.
+    """
+    return str(key).strip() if value is None else f"{key}: {value}".strip()
+
+
 @dataclass
 class DocPayload:
     slug: str
     frontmatter: dict
     body: str
-    agent_guidance: list[str]
+    # Agent-facing keys only, addressable by name. Different consumers want
+    # different keys: get_doc reads `agent_guidance`, the index reads
+    # `agent_index`. Human-only keys (todo, status) never appear here.
+    agent_directives: dict
     fetched_at: float
+
+    @property
+    def agent_guidance(self) -> list[str]:
+        """Per-doc directives, as a flat list of lines."""
+        return _as_lines(self.agent_directives.get("agent_guidance"))
 
 
 class DocNotFoundError(Exception):
@@ -111,6 +156,61 @@ class _Cache:
 _cache = _Cache(CACHE_TTL_SECONDS)
 
 
+AGENT_KEY_PREFIX = "agent_"
+
+
+def _parse_directives(slug: str, comments: list[str]) -> dict:
+    """Extract agent-facing keys from a doc's HTML comments.
+
+    Comments are the agent-only layer: Quartz strips them, so authors use them
+    for both bot directives (`agent_guidance`, `agent_index`) and human notes
+    (`todo`, `status`). Only `agent_`-prefixed keys are returned.
+
+    The prefix is the contract rather than a fixed list of key names, so a new
+    directive works without a code change and a new human-only key stays private
+    without one. Forgetting the prefix means the bot ignores a directive, which
+    is visible the first time it is tested. The opposite default leaks internal
+    notes into the prompt silently, which is what this replaces.
+    """
+    directives: dict = {}
+    for comment in comments:
+        try:
+            parsed = yaml.safe_load(comment)
+        except yaml.YAMLError as e:
+            # Never fall back to passing the raw comment through: that is the
+            # leak. A malformed comment loses its directives and says so.
+            logger.warning(
+                "doc_directives_unparseable",
+                slug=slug,
+                error=str(e),
+                detail="agent directives dropped for this comment block",
+            )
+            continue
+
+        if not isinstance(parsed, dict):
+            continue
+
+        for key, value in parsed.items():
+            if not (isinstance(key, str) and key.startswith(AGENT_KEY_PREFIX)):
+                continue
+            # A page may split one directive across several comment blocks, so
+            # a repeated key accumulates. Overwriting would drop the earlier
+            # block silently, which is how guidance goes missing unnoticed.
+            if key in directives:
+                directives[key] = _merge_directive(directives[key], value)
+            else:
+                directives[key] = value
+
+    return directives
+
+
+def _merge_directive(existing, incoming):
+    """Combine two values for the same directive key."""
+    if isinstance(existing, dict) and isinstance(incoming, dict):
+        return {**existing, **incoming}
+    return _as_lines(existing) + _as_lines(incoming)
+
+
 def _parse(slug: str, raw: str) -> DocPayload:
     match = _FRONTMATTER_RE.match(raw)
     if match:
@@ -120,14 +220,13 @@ def _parse(slug: str, raw: str) -> DocPayload:
         frontmatter = {}
         body = raw
 
-    agent_guidance = [c.strip() for c in _HTML_COMMENT_RE.findall(body)]
     body_clean = _HTML_COMMENT_RE.sub("", body).strip()
 
     return DocPayload(
         slug=slug,
         frontmatter=frontmatter,
         body=body_clean,
-        agent_guidance=agent_guidance,
+        agent_directives=_parse_directives(slug, _HTML_COMMENT_RE.findall(body)),
         fetched_at=time.time(),
     )
 
@@ -209,13 +308,19 @@ async def fetch_index() -> DocPayload:
 def format_index_for_prompt(payload: DocPayload) -> str:
     """Render an index payload into a flat string for system-prompt injection.
 
-    Includes the customer-facing body and the `agent_guidance` HTML-comment
-    blocks. Claude reads both — the body gives him the slug list with
-    one-line summaries; the agent_index comment gives him the canonical
-    slug→summary mapping.
+    Includes the customer-facing body and the `agent_index` directive. The body
+    gives the slug list with one-line summaries; `agent_index` gives the
+    canonical slug→summary mapping.
+
+    Reads `agent_index` by name rather than dumping every comment, so a `todo`
+    or `status` block in index.md stays out of the system prompt.
     """
     parts = [payload.body.strip()]
-    parts.extend(g.strip() for g in payload.agent_guidance)
+
+    index = _as_lines(payload.agent_directives.get("agent_index"))
+    if index:
+        parts.append("agent_index:\n" + "\n".join(f"  {line}" for line in index))
+
     return "\n\n".join(p for p in parts if p)
 
 
