@@ -69,8 +69,14 @@ class ToolRegistry:
         tool_class = self._tools.get(name)
         return tool_class() if tool_class else None
 
-    def get_openai_tools(self) -> list[dict[str, Any]]:
-        """Get all tools in the OpenAI function-calling envelope."""
+    def get_openai_tools(self, exclude: set[str] | None = None) -> list[dict[str, Any]]:
+        """Get tools in the OpenAI function-calling envelope.
+
+        `exclude` drops tools by name. A tool the model cannot see is a tool it
+        cannot call spuriously, which is cheaper than asking the prompt to hold
+        the line.
+        """
+        exclude = exclude or set()
         return [
             {
                 "type": "function",
@@ -84,7 +90,11 @@ class ToolRegistry:
                     },
                 },
             }
-            for tool in (tool_class() for tool_class in self._tools.values())
+            for tool in (
+                tool_class()
+                for name, tool_class in self._tools.items()
+                if name not in exclude
+            )
         ]
 
     def list_tools(self) -> list[str]:

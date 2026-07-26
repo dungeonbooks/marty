@@ -123,6 +123,24 @@ def _compose_user_turn(user_message: str, request_context: str) -> str:
     return f"{request_context}\n\n---\n\n{user_message}"
 
 
+# Prior messages, not exchanges: 4 means two completed user/assistant rounds,
+# so rename_thread first becomes available on the third user turn.
+RENAME_THREAD_MIN_HISTORY = 4
+
+
+def _tools_to_withhold(conversation_history: list[ConversationMessage]) -> set[str]:
+    """Tools that should not be offered yet, given how far the conversation has got.
+
+    `rename_thread` is the case that matters. The prompt says to use it "if chat
+    gets long enough", but on a first message GLM-5.2-short-fast called it on
+    every one of three trials, once inventing a `thread_name` function that does
+    not exist. There is no topic to name yet, so withhold it outright.
+    """
+    if len(conversation_history) < RENAME_THREAD_MIN_HISTORY:
+        return {"rename_thread"}
+    return set()
+
+
 async def _fetch_docs_index() -> str:
     try:
         from src.tools.docs.fetcher import fetch_index, format_index_for_prompt
@@ -243,7 +261,9 @@ async def generate_ai_response(
             messages.append({"role": msg.role, "content": msg.content})
         messages.append({"role": "user", "content": user_turn})
 
-        tools = tool_registry.get_openai_tools()
+        tools = tool_registry.get_openai_tools(
+            exclude=_tools_to_withhold(conversation_history)
+        )
 
         logger.debug(f"Calling LLM with {len(messages)} messages")
         response = await _complete(messages, tools=tools)
@@ -275,6 +295,8 @@ async def generate_ai_response(
         )
 
         executed_tools: list[dict] = []
+        offered = {t["function"]["name"] for t in tools}
+
         for tc in tool_calls:
             tool_name = tc.function.name
             try:
@@ -284,6 +306,25 @@ async def generate_ai_response(
             except json.JSONDecodeError:
                 logger.warning(f"Bad tool arguments JSON for {tool_name}")
                 tool_input = {}
+
+            # Withholding a tool from the schema is a hint, not a guarantee -
+            # the model can still name one. Dispatch against what was offered
+            # for this request, not against the whole registry.
+            if tool_name not in offered:
+                logger.warning(
+                    "tool_call_not_offered",
+                    tool=tool_name,
+                    detail="model called a tool that was withheld or does not exist",
+                )
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "name": tool_name,
+                        "content": f"Error: {tool_name} is not available right now",
+                    }
+                )
+                continue
 
             tool = tool_registry.get_tool(tool_name)
             if tool is None:
