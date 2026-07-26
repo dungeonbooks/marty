@@ -88,6 +88,24 @@ def validate_environment_variables() -> None:
         f"Hardcover API key configured: {bool(os.getenv('HARDCOVER_API_TOKEN'))}"
     )
 
+    expiry = app_config.hardcover_token_expiry()
+    if not app_config.validate_hardcover_setup():
+        logger.error(
+            "hardcover_token_expired",
+            expiry=expiry.isoformat() if expiry else None,
+            detail=(
+                "Hardcover token has expired. Book lookups will fail until it is "
+                "rotated at hardcover.app > Settings > API."
+            ),
+        )
+    elif expiry is not None:
+        days_left = (expiry - datetime.now(UTC)).days
+        logger.info(
+            "hardcover_token_valid", expires=expiry.isoformat(), days_left=days_left
+        )
+        if days_left < 14:
+            logger.warning("hardcover_token_expiring_soon", days_left=days_left)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
