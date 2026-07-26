@@ -487,6 +487,34 @@ class MartyBot(commands.Bot):
                 self._embedded_books.pop(oldest)
         return already
 
+    async def _emit_book_embed(self, book: dict, thread, username: str) -> bool:
+        """Send one book embed, at most once per book per thread.
+
+        Both embed paths funnel through here. A book Marty looks up is usually
+        also a book he names, so without shared bookkeeping the tool-driven and
+        prose-driven paths each sent their own copy of the same embed.
+        """
+        key = _normalize_title(book.get("title", ""))
+        if not key:
+            return False
+
+        already = self._embedded_titles(getattr(thread, "id", None))
+        if already is not None:
+            if key in already:
+                logger.debug("duplicate_book_embed_skipped", title=book.get("title"))
+                return False
+            already.add(key)
+
+        try:
+            await thread.send(embed=create_book_embed(book))
+            logger.info("book_embed_sent", title=book.get("title"), username=username)
+            return True
+        except Exception as e:
+            logger.error(f"Error sending book embed: {e}")
+            if already is not None:
+                already.discard(key)
+            return False
+
     async def _send_embeds_for_mentioned_books(
         self, response_text: str, thread, username: str
     ) -> None:
@@ -508,13 +536,11 @@ class MartyBot(commands.Bot):
             if sent >= _MAX_AUTO_EMBEDS:
                 break
 
-            key = _normalize_title(title)
-            if not key:
+            mentioned_key = _normalize_title(title)
+            if not mentioned_key:
                 continue
-            if already is not None:
-                if key in already:
-                    continue
-                already.add(key)
+            if already is not None and mentioned_key in already:
+                continue
 
             try:
                 result = await self.hardcover.execute(
@@ -539,12 +565,13 @@ class MartyBot(commands.Bot):
                 )
                 continue
 
-            try:
-                await thread.send(embed=create_book_embed(book))
+            if await self._emit_book_embed(book, thread, username):
                 sent += 1
-                logger.info(f"Auto-embedded '{book.get('title')}' for {username}")
-            except Exception as e:
-                logger.warning(f"Failed to send auto embed for '{title}': {e}")
+                # The cache keys on the resolved title, so record the phrasing
+                # Marty used as well. Otherwise "Dune" re-queries Hardcover on
+                # every turn even though "Dune: A Novel" is already embedded.
+                if already is not None:
+                    already.add(mentioned_key)
 
     async def _send_book_embeds(self, tool_result: dict, thread, username: str) -> None:
         """Send book embeds for Hardcover API results."""
@@ -586,18 +613,7 @@ class MartyBot(commands.Bot):
         # Send embeds for books (limit to 3 to avoid spam)
         for book_data in books_data[:3]:
             if book_data and isinstance(book_data, dict):
-                try:
-                    embed = create_book_embed(book_data)
-                    await thread.send(embed=embed)
-                    logger.info(
-                        f"Sent book embed for '{book_data.get('title', 'Unknown')}' to {username}"
-                    )
-                except Exception as e:
-                    logger.error(f"Error creating book embed: {e}")
-                    logger.debug(
-                        f"Book data that caused error: {book_data.get('cached_tags')} (type: {type(book_data.get('cached_tags'))})"
-                    )
-                    # Continue without the embed rather than failing completely
+                await self._emit_book_embed(book_data, thread, username)
 
     async def _send_card_embed(self, tool_result: dict, thread, username: str) -> None:
         """Send a card embed for Scryfall API results."""

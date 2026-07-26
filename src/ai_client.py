@@ -409,7 +409,9 @@ async def generate_ai_response(
         offered = {t["function"]["name"] for t in tools}
         executed_tools: list[dict] = []
 
+        rounds_used = 0
         for round_index in range(MAX_TOOL_ROUNDS):
+            rounds_used = round_index + 1
             logger.debug(f"LLM round {round_index + 1} with {len(messages)} messages")
             response = await _complete(messages, tools=tools)
             assistant_msg = response.choices[0].message
@@ -427,7 +429,9 @@ async def generate_ai_response(
 
         # Either the model kept reaching for tools, or it answered with nothing.
         # Drop the tools so prose is the only legal output and it has to commit.
-        logger.info("tool_loop_forcing_answer", rounds=MAX_TOOL_ROUNDS)
+        logger.info(
+            "tool_loop_forcing_answer", rounds=rounds_used, max_rounds=MAX_TOOL_ROUNDS
+        )
         final = await _complete(messages)
         text = (final.choices[0].message.content or "").strip()
         return text or "I'm having trouble generating a response right now.", (
