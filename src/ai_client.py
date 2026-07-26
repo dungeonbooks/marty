@@ -54,11 +54,17 @@ def load_system_prompt() -> str:
 MARTY_SYSTEM_PROMPT = load_system_prompt()
 
 
-def _build_system_prompt(customer_context: dict | None, docs_index: str) -> str:
-    """Compose the system prompt: stable persona, then docs index, then per-request context.
+def _build_system_prompt(docs_index: str) -> str:
+    """Compose the system prompt from bytes that are stable across customers.
 
-    Stable bytes go first so Neuralwatt's prefix cache hits across requests.
-    Variable per-request bytes (customer name, time) go last.
+    Nothing per-request belongs here. Neuralwatt caches on the literal token
+    prefix, so a customer name or a clock reading in the system message changes
+    the prefix and cold-prefills the system prompt, the tool definitions, and
+    the entire conversation history on every single call.
+
+    Not immutable: `docs_index` rotates on its 15-minute TTL and when the docs
+    repo changes. That invalidates the cached prefix for everyone at once,
+    which is the point - it stays shared rather than fragmenting per customer.
     """
     parts = [MARTY_SYSTEM_PROMPT]
 
@@ -73,28 +79,48 @@ def _build_system_prompt(customer_context: dict | None, docs_index: str) -> str:
             f"{docs_index}"
         )
 
-    if customer_context:
-        context_info = []
-        if customer_context.get("name"):
-            context_info.append(f"Customer name: {customer_context['name']}")
-        if customer_context.get("phone"):
-            context_info.append(f"Phone: {customer_context['phone']}")
-        if customer_context.get("customer_id"):
-            context_info.append(f"Customer ID: {customer_context['customer_id']}")
-        if context_info:
-            parts.append("Customer Context:\n" + " | ".join(context_info))
-
-        time_context = []
-        if customer_context.get("current_time"):
-            time_context.append(f"Current time: {customer_context['current_time']}")
-        if customer_context.get("current_date"):
-            time_context.append(f"Current date: {customer_context['current_date']}")
-        if customer_context.get("current_day"):
-            time_context.append(f"Day of week: {customer_context['current_day']}")
-        if time_context:
-            parts.append("Current Time & Date:\n" + " | ".join(time_context))
-
     return "\n\n".join(parts)
+
+
+def _format_request_context(customer_context: dict | None) -> str:
+    """Render per-request context to ride along with the current user turn.
+
+    This sits at the tail of the prompt, after the history, so everything
+    before it stays a stable growing prefix that caches turn over turn.
+    """
+    if not customer_context:
+        return ""
+
+    sections = []
+
+    context_info = []
+    if customer_context.get("name"):
+        context_info.append(f"Customer name: {customer_context['name']}")
+    if customer_context.get("phone"):
+        context_info.append(f"Phone: {customer_context['phone']}")
+    if customer_context.get("customer_id"):
+        context_info.append(f"Customer ID: {customer_context['customer_id']}")
+    if context_info:
+        sections.append("Customer Context:\n" + " | ".join(context_info))
+
+    time_context = []
+    if customer_context.get("current_time"):
+        time_context.append(f"Current time: {customer_context['current_time']}")
+    if customer_context.get("current_date"):
+        time_context.append(f"Current date: {customer_context['current_date']}")
+    if customer_context.get("current_day"):
+        time_context.append(f"Day of week: {customer_context['current_day']}")
+    if time_context:
+        sections.append("Current Time & Date:\n" + " | ".join(time_context))
+
+    return "\n\n".join(sections)
+
+
+def _compose_user_turn(user_message: str, request_context: str) -> str:
+    """Attach per-request context to the user's message."""
+    if not request_context:
+        return user_message
+    return f"{request_context}\n\n---\n\n{user_message}"
 
 
 async def _fetch_docs_index() -> str:
@@ -207,12 +233,15 @@ async def generate_ai_response(
     """
     try:
         docs_index = await _fetch_docs_index()
-        system_prompt = _build_system_prompt(customer_context, docs_index)
+        system_prompt = _build_system_prompt(docs_index)
+        user_turn = _compose_user_turn(
+            user_message, _format_request_context(customer_context)
+        )
 
         messages: list[dict] = [{"role": "system", "content": system_prompt}]
         for msg in conversation_history:
             messages.append({"role": msg.role, "content": msg.content})
-        messages.append({"role": "user", "content": user_message})
+        messages.append({"role": "user", "content": user_turn})
 
         tools = tool_registry.get_openai_tools()
 
@@ -318,7 +347,7 @@ async def generate_ai_response(
         fallback = await _complete(
             [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
+                {"role": "user", "content": user_turn},
             ],
             tools=tools,
         )

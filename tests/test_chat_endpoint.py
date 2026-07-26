@@ -113,8 +113,8 @@ class TestChatEndpoint:
 
         # Check that customer context was passed
         call_args = mock_llm_api.chat.completions.create.call_args
-        system_prompt = call_args[1]["messages"][0]["content"]
-        assert phone in system_prompt  # Phone should be in customer context
+        user_turn = call_args[1]["messages"][-1]["content"]
+        assert phone in user_turn  # Phone rides on the user turn now
 
     def test_chat_endpoint_ai_error_handling(self, mock_llm_api, llm_response):
         """Test chat endpoint when AI service fails."""
@@ -244,11 +244,12 @@ class TestChatEndpoint:
         data = response.json()
         assert data["response"] == "sure! what genre?"
 
-        # Verify the message was passed correctly to AI
+        # Verify the message was passed correctly to AI. Per-request context is
+        # prepended to the user turn, so the message sits at the end intact.
         call_args = mock_llm_api.chat.completions.create.call_args
         messages = call_args[1]["messages"]
         user_message = next(msg for msg in messages if msg["role"] == "user")
-        assert user_message["content"] == special_message
+        assert user_message["content"].endswith(special_message)
 
 
 class TestChatIntegrationScenarios:
