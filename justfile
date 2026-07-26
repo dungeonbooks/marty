@@ -127,8 +127,10 @@ test-infra-down:
 
 # Run all tests with test infra
 test-all: test-infra-up
+    #!/usr/bin/env bash
+    # Tear down even when pytest fails, and still exit with its status.
+    trap 'just test-infra-down' EXIT
     TEST_DATABASE_URL=postgresql+asyncpg://marty_test:password@localhost:{{TEST_PG_PORT}}/marty_test TEST_REDIS_URL=redis://localhost:{{TEST_REDIS_PORT}}/1 uv run pytest
-    just test-infra-down
 
 # Complete project setup
 setup: install-dev pre-commit-install
@@ -213,8 +215,10 @@ ci-full:
 
 # Run only integration tests (requires test infra)
 test-integration: test-infra-up
+    #!/usr/bin/env bash
+    # Tear down even when pytest fails, and still exit with its status.
+    trap 'just test-infra-down' EXIT
     TEST_DATABASE_URL=postgresql+asyncpg://marty_test:password@localhost:{{TEST_PG_PORT}}/marty_test TEST_REDIS_URL=redis://localhost:{{TEST_REDIS_PORT}}/1 uv run pytest -m integration
-    just test-infra-down
 
 # Watch for changes and restart development server
 watch:

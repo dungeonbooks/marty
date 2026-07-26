@@ -46,10 +46,13 @@ async def setup_sqlite_db():
         await conn.run_sync(Base.metadata.drop_all)
 
 
-# Postgres for integration tests
+# Postgres for integration tests. TEST_DATABASE_URL wins if set; otherwise the
+# default is built from TEST_PG_PORT so the same knob works whether you go
+# through `just` or run docker-compose and pytest by hand.
+TEST_PG_PORT = os.getenv("TEST_PG_PORT", "55432")
 POSTGRES_URL = os.getenv(
     "TEST_DATABASE_URL",
-    "postgresql+asyncpg://marty_test:password@localhost:55432/marty_test",
+    f"postgresql+asyncpg://marty_test:password@localhost:{TEST_PG_PORT}/marty_test",
 )
 pg_engine = create_async_engine(
     POSTGRES_URL,
