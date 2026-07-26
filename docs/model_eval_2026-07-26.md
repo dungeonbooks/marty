@@ -1,5 +1,11 @@
 # Model comparison
 
+> **Contact details in the response dumps below are redacted.** Several models
+> invented a store phone number and two different street addresses for the same
+> question. None of them appear anywhere in this repo. They are replaced with
+> `[REDACTED-PHONE]` / `[REDACTED-ADDRESS]` so this file cannot be mistaken for
+> real contact info. See "Hallucinated store details" below.
+
 ## Summary
 
 | model | responses | violations | clean | median s | p90 s | $/reply | out tok |
@@ -280,7 +286,7 @@ can't see inventory from here. worth asking in the shop, we carry more than the 
 ```
 can't check inventory from here, sorry. worth asking in the shop or pinging @nachi - we carry more than the site shows.
 
-or u can call ahead: (201) 222-2665
+or u can call ahead: [REDACTED-PHONE]
 ```
 
 ### where_to_buy
@@ -290,7 +296,7 @@ or u can call ahead: (201) 222-2665
 **glm-5.2-short** (1.7s, tools: none) - clean
 
 ```
-we carry it at the shop. Dungeon Books is at 317 Grove St in Jersey City, open Wed-Sun 12-7pm. you can also grab it online at dungeonbooks.com
+we carry it at the shop. Dungeon Books is at [REDACTED-ADDRESS] in Jersey City, open Wed-Sun 12-7pm. you can also grab it online at dungeonbooks.com
 
 if you want it in person, swing by and ask - we carry more than you'd expect.
 ```
@@ -298,7 +304,7 @@ if you want it in person, swing by and ask - we carry more than you'd expect.
 **glm-5.2-short** (1.5s, tools: none) - exclamation
 
 ```
-we carry it in the shop! we're at 355 Grove St in Jersey City, open wed-sun 12-7pm. you can also grab it online at [dungeonbooks.com](https://www.dungeonbooks.com).
+we carry it in the shop! we're at [REDACTED-ADDRESS] in Jersey City, open wed-sun 12-7pm. you can also grab it online at [dungeonbooks.com](https://www.dungeonbooks.com).
 
 want it shipped or picking up in store?
 ```
@@ -688,3 +694,24 @@ if you want a starting point, try **The Dying Earth** by Jack Vance - the spell 
 
 panat at the shop is big on this stuff too.
 ```
+
+## Hallucinated store details
+
+The most serious finding here is not about model choice.
+
+Asked "where can i buy Dungeon Crawler Carl", no model called `get_doc`. The
+question reads as a book question, so each answered store location from
+parametric memory and invented it:
+
+- `glm-5.2-short` gave two different street addresses across two runs of the
+  same prompt
+- `kimi-k2.6-fast` supplied a phone number
+
+Neither address nor the phone number appears anywhere in this repo or the docs.
+
+Asked "what time do you close on sunday", every model called `get_doc` correctly.
+So the docs wiring works; the gap is which questions are recognised as needing
+it. "Where can I buy X" is a store question wearing a book question's clothes.
+
+This affects production today, on the model we currently run, and is independent
+of the Kimi comparison.

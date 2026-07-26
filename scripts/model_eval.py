@@ -33,8 +33,13 @@ DEFAULT_MODELS = ["glm-5.2-short", "kimi-k2.6", "kimi-k2.6-fast"]
 BASE_MAX_TOKENS = 500
 MODEL_MAX_TOKENS = {"kimi-k2.6": 1500}
 
-# generate_ai_response returns this when it cannot get an answer out of the model.
-FALLBACK_REPLY = "I'm having trouble generating a response right now."
+# Both strings generate_ai_response returns when it cannot get a real answer:
+# the first when the tool loop ends with empty content, the second when the call
+# raised. Neither breaks a style rule, so both must be caught explicitly.
+FALLBACK_REPLIES = (
+    "I'm having trouble generating a response right now.",
+    "sorry, brain's lagging. can you try again?",
+)
 
 # Each prompt targets rules the model could plausibly break.
 PROMPTS: list[tuple[str, str]] = [
@@ -115,7 +120,7 @@ def find_violations(text: str, label: str, tools: list[str]) -> list[str]:
 
     # Must come first: a failed generation breaks no style rule, so without this
     # it scores as clean and a broken model looks like the best-behaved one.
-    if FALLBACK_REPLY in text or text.startswith("<error:"):
+    if text.startswith("<error:") or any(f in text for f in FALLBACK_REPLIES):
         return ["no-answer"]
 
     for ch in SMART_PUNCT:
@@ -221,7 +226,17 @@ async def run_one(model: str, label: str, prompt: str, tap: UsageTap) -> Result:
     try:
         text, tool_results = await generate_ai_response(prompt, [])
     except Exception as exc:  # noqa: BLE001 - surfaced in the report
-        return Result(label, model, prompt, f"<error: {exc}>", 0.0, [], ["errored"])
+        # Record real elapsed time: zeroing it drags the latency percentiles down
+        # and makes a model that fails slowly look fast.
+        return Result(
+            label,
+            model,
+            prompt,
+            f"<error: {exc}>",
+            time.perf_counter() - start,
+            [],
+            ["no-answer"],
+        )
     elapsed = time.perf_counter() - start
     tools = [t.get("tool_name", "?") for t in tool_results]
     return Result(
