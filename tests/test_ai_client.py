@@ -13,6 +13,7 @@ from src.ai_client import (
     MARTY_SYSTEM_PROMPT,
     RENAME_THREAD_MIN_HISTORY,
     ConversationMessage,
+    _render_tool_result,
     generate_ai_response,
     load_system_prompt,
 )
@@ -417,6 +418,56 @@ class TestSystemPromptContent:
         # Should start with the loaded system prompt
         assert "martinus trismegistus" in system_prompt
         assert len(system_prompt) > 1000
+
+
+class TestToolResultRendering:
+    """Tool results are billed as input, so the model's view is budgeted."""
+
+    def test_bulk_fields_dropped(self):
+        book = {
+            "title": "Dune",
+            "author": "Frank Herbert",
+            "editions": [{"isbn": str(i)} for i in range(500)],
+            "cached_tags": {"Genre": ["scifi"] * 200},
+        }
+
+        rendered = _render_tool_result([book])
+
+        assert "Dune" in rendered
+        assert "Frank Herbert" in rendered
+        assert "editions" not in rendered
+        assert "cached_tags" not in rendered
+
+    def test_source_data_is_not_mutated(self):
+        """The embed builder and enricher still read the untouched result."""
+        book = {"title": "Dune", "editions": [{"isbn": "1"}], "cached_tags": {"a": 1}}
+
+        _render_tool_result([book])
+
+        assert book["editions"] == [{"isbn": "1"}]
+        assert book["cached_tags"] == {"a": 1}
+
+    def test_long_prose_is_clipped(self):
+        book = {"title": "Dune", "description": "x" * 5000}
+
+        rendered = _render_tool_result([book])
+
+        assert len(rendered) < 1000
+        assert "..." in rendered
+
+    def test_long_lists_drop_whole_entries(self):
+        books = [{"title": f"Book {i}", "description": "y" * 300} for i in range(100)]
+
+        rendered = _render_tool_result(books)
+
+        assert "showing" in rendered and "of 100 results" in rendered
+        # Whole records only - never a record severed mid-structure
+        assert rendered.split("\n\n[showing")[0].endswith("]")
+
+    def test_small_results_pass_through(self):
+        data = {"slug": "returns", "body": "7 days with receipt"}
+
+        assert _render_tool_result(data) == str(data)
 
 
 class TestToolGating:
