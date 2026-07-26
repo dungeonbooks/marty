@@ -1,4 +1,4 @@
-"""Fetch and parse markdown docs from dungeonbooks/docs.
+"""Fetch and parse markdown docs from dungeonbooks/policies.
 
 Uses raw.githubusercontent.com directly. No GitHub API auth, no PAT, read-only.
 In-memory TTL cache with single-lock refill and stale-on-network-failure
@@ -19,7 +19,7 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-DOCS_BASE_URL = "https://raw.githubusercontent.com/dungeonbooks/docs/main"
+DOCS_BASE_URL = "https://raw.githubusercontent.com/dungeonbooks/policies/main"
 CACHE_TTL_SECONDS = 15 * 60
 HTTP_TIMEOUT_SECONDS = 5
 

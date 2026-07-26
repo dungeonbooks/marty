@@ -1,4 +1,4 @@
-"""Smoke test for the get_doc tool against the live dungeonbooks/docs repo."""
+"""Smoke test for the get_doc tool against the live dungeonbooks/policies repo."""
 
 import asyncio
 
@@ -31,17 +31,17 @@ async def main() -> None:
     print()
     print("=== publish gate ===")
     try:
-        await fetch_doc("events")
+        await fetch_doc("orders")
         print(
-            "  events                                  FAIL: expected DocNotPublishedError"
+            "  orders                                  FAIL: expected DocNotPublishedError"
         )
     except DocNotPublishedError:
         print(
-            "  events                                  OK  raised DocNotPublishedError"
+            "  orders                                  OK  raised DocNotPublishedError"
         )
     except Exception as e:
         print(
-            f"  events                                  FAIL: {type(e).__name__}: {e}"
+            f"  orders                                  FAIL: {type(e).__name__}: {e}"
         )
 
     print()
