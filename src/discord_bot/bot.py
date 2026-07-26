@@ -1,9 +1,9 @@
-import logging
 import os
 from datetime import UTC, datetime
 from typing import Any
 
 import discord  # type: ignore
+import structlog
 from discord import app_commands  # type: ignore
 from discord.ext import commands  # type: ignore
 
@@ -27,7 +27,29 @@ from .embeds import create_book_embed, create_recent_releases_embed
 from .feeds import FeedsCog
 from .mtg import CardsCog, build_card_embed, send_card_reply
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
+
+
+# These return many books and are presented as a condensed list, not as one
+# embed per title.
+_LIST_BOOK_ACTIONS = frozenset({"get_trending_books", "get_recent_releases"})
+
+
+def _is_embeddable(book: dict) -> bool:
+    """Whether a record carries enough to be worth showing as an embed.
+
+    Hardcover carries stub records - a title someone created with no author,
+    cover or rating. Rendering one produces an embed reading "by []" with a
+    single Links field, which looks broken next to a real result.
+    """
+    if not book.get("title"):
+        return False
+    # cached_contributors is create_book_embed's author fallback, so a record
+    # carrying only that still renders correctly and must not be filtered out.
+    return any(
+        book.get(k)
+        for k in ("author", "cached_contributors", "image", "rating", "description")
+    )
 
 
 async def search_book_shared(hardcover_tool, query: str):
@@ -414,18 +436,33 @@ class MartyBot(commands.Bot):
         if not result or not result.success or not result.data:
             return
 
-        # Handle different Hardcover actions that return book data
-        books_data = []
+        # The embed is how a book gets shown, so anything that resolves to a
+        # specific book should produce one. Listing the actions individually
+        # meant search_books_intelligent - the one the prompt tells Marty to
+        # reach for first - silently produced no embed at all.
+        if action in _LIST_BOOK_ACTIONS:
+            # Own presentation elsewhere (condensed list), not one embed each.
+            return
 
-        if action == "search_books":
-            # Only embed the top result — Claude's recommendation text covers the rest
-            data = result.data if isinstance(result.data, list) else []
-            books_data = data[:1]
-        elif action == "get_books_by_ids":
-            books_data = result.data if isinstance(result.data, list) else []
-        elif action == "get_book_by_id":
-            if isinstance(result.data, dict):
-                books_data = [result.data]
+        if isinstance(result.data, dict):
+            candidates = [result.data]
+        elif isinstance(result.data, list):
+            candidates = [b for b in result.data if isinstance(b, dict)]
+        else:
+            return
+
+        # Several results means a search, and only the top hit is the subject.
+        limit = len(candidates) if action == "get_books_by_ids" else 1
+        books_data = [b for b in candidates if _is_embeddable(b)][:limit]
+
+        if not books_data:
+            logger.info(
+                "no_embeddable_book",
+                action=action,
+                candidates=len(candidates),
+                detail="results lacked the metadata an embed needs",
+            )
+            return
 
         # Send embeds for books (limit to 3 to avoid spam)
         for book_data in books_data[:3]:
