@@ -195,15 +195,13 @@ class MartyBot(commands.Bot):
         channel_id = str(message.channel.id)
         guild_id = str(message.guild.id) if message.guild else None
 
-        # If we're in a thread created by the bot, use parent channel for conversation lookup
-        is_bot_thread = (
-            hasattr(message.channel, "owner") and message.channel.owner == self.user
-        )
-
-        # For conversation lookup, use parent channel if in bot thread
+        # Scope history to the thread. Keying on the parent channel instead gave
+        # every thread in a channel one shared, never-ending conversation, so a
+        # fresh thread opened with history from an unrelated one 20 minutes
+        # earlier and Marty answered with "already got u covered just above".
+        # A thread is Discord's own topic boundary; a top-level mention that
+        # starts one keys on the channel until the thread exists.
         conversation_channel_id = channel_id
-        if is_bot_thread and hasattr(message.channel, "parent"):
-            conversation_channel_id = str(message.channel.parent.id)
 
         logger.info(
             f"Processing Discord message from {username} ({user_id}): {user_message}"
@@ -322,6 +320,13 @@ class MartyBot(commands.Bot):
                         try:
                             thread = await message.create_thread(name="Chat with Marty")
                             await thread.send(ai_response)
+
+                            # The opening mention was keyed to the channel because
+                            # the thread did not exist yet. Move the conversation
+                            # onto the thread so replies continue it, and so the
+                            # next mention in this channel starts fresh.
+                            conversation.discord_channel_id = str(thread.id)
+                            await db.commit()
 
                             # Handle any tool results (like thread renaming)
                             await self._handle_tool_results(
