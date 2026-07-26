@@ -107,12 +107,14 @@ Add to your `.env` file (see `.env.example`):
 # Hardcover API Configuration
 HARDCOVER_API_TOKEN=Bearer your_hardcover_api_token_here
 HARDCOVER_API_URL=https://api.hardcover.app/v1/graphql
-HARDCOVER_TOKEN_EXPIRY=2026-07-11T15:42:27
 ```
 
 ## Token Management:
 
-- **Expiry**: Your token expires on 7/11/2026, 3:42:27 PM
+- **Expiry**: Read automatically from the token's own `exp` claim. The
+  `HARDCOVER_TOKEN_EXPIRY` variable is deprecated and ignored; it was a
+  hand-maintained copy that went stale on every rotation and then reported a
+  working token as expired.
 - **Security**: Keep your token private, never commit it to version control
 - **Beta Status**: Tokens may be reset during beta without notice
 - **Format**: Must include "Bearer " prefix
