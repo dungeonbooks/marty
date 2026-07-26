@@ -11,6 +11,7 @@ import pytest
 
 from src.ai_client import (
     MARTY_SYSTEM_PROMPT,
+    RENAME_THREAD_MIN_HISTORY,
     ConversationMessage,
     generate_ai_response,
     load_system_prompt,
@@ -416,6 +417,75 @@ class TestSystemPromptContent:
         # Should start with the loaded system prompt
         assert "martinus trismegistus" in system_prompt
         assert len(system_prompt) > 1000
+
+
+class TestToolGating:
+    """rename_thread must not be offered before there is a topic to name."""
+
+    @pytest.mark.asyncio
+    async def test_rename_thread_withheld_on_first_message(
+        self, mock_llm_api, llm_response
+    ):
+        mock_llm_api.chat.completions.create.return_value = llm_response("ok")
+
+        await generate_ai_response("recommend me some fantasy books", [])
+
+        tools = mock_llm_api.chat.completions.create.call_args[1]["tools"]
+        names = [t["function"]["name"] for t in tools]
+        assert "rename_thread" not in names
+        assert "hardcover_api" in names, "only rename_thread should be withheld"
+
+    @pytest.mark.asyncio
+    async def test_withheld_tool_is_refused_if_called_anyway(
+        self, mock_llm_api, llm_response
+    ):
+        """The schema is a hint; dispatch is where the gate has to hold."""
+        from unittest.mock import MagicMock
+
+        call = MagicMock()
+        call.id = "call_1"
+        call.function.name = "rename_thread"
+        call.function.arguments = '{"thread_name": "sci-fi recs"}'
+
+        mock_llm_api.chat.completions.create.side_effect = [
+            llm_response("", tool_calls=[call]),
+            llm_response("sure, what are you after?"),
+        ]
+
+        with patch("src.tools.ToolRegistry.get_tool") as get_tool:
+            text, executed = await generate_ai_response("hi", [])
+
+            get_tool.assert_not_called()
+
+        assert executed == []
+        assert text == "sure, what are you after?"
+
+        follow_up = mock_llm_api.chat.completions.create.call_args_list[1][1][
+            "messages"
+        ]
+        refusal = next(m for m in follow_up if m["role"] == "tool")
+        assert "not available" in refusal["content"]
+
+    @pytest.mark.asyncio
+    async def test_rename_thread_offered_once_conversation_has_legs(
+        self, mock_llm_api, llm_response
+    ):
+        from datetime import datetime
+
+        mock_llm_api.chat.completions.create.return_value = llm_response("ok")
+        history = [
+            ConversationMessage(
+                role="user" if i % 2 == 0 else "assistant",
+                content=f"message {i}",
+                timestamp=datetime.now(),
+            )
+            for i in range(RENAME_THREAD_MIN_HISTORY)
+        ]
+
+        await generate_ai_response("and something darker", history)
+
+        tools = mock_llm_api.chat.completions.create.call_args[1]["tools"]
+        assert "rename_thread" in [t["function"]["name"] for t in tools]
 
 
 class TestPromptOrdering:
