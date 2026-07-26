@@ -71,6 +71,87 @@ class TestEmbeddability:
         assert not _is_embeddable({"author": "Frank Herbert"})
 
 
+class TestEmbedDeduplication:
+    """A book Marty looks up is usually also a book he names, so both embed
+    paths land on the same title and each used to send its own copy."""
+
+    @pytest.fixture
+    def bot(self):
+        from unittest.mock import MagicMock, patch
+
+        from src.discord_bot.bot import MartyBot
+
+        with patch("src.discord_bot.bot.HardcoverTool", MagicMock()):
+            with patch.object(MartyBot, "__init__", lambda self: None):
+                b = MartyBot()
+        b._embedded_books = {}
+        b.hardcover = MagicMock()
+        return b
+
+    @pytest.fixture
+    def thread(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        t = MagicMock()
+        t.id = 12345
+        t.send = AsyncMock()
+        return t
+
+    @pytest.mark.asyncio
+    async def test_same_book_sends_once(self, bot, thread):
+        book = {"title": "Find Me Where It Ends", "author": "Cassandra Khaw"}
+
+        first = await bot._emit_book_embed(book, thread, "nachi")
+        second = await bot._emit_book_embed(book, thread, "nachi")
+
+        assert (first, second) == (True, False)
+        assert thread.send.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_title_punctuation_does_not_defeat_dedup(self, bot, thread):
+        await bot._emit_book_embed(
+            {"title": "Dune: A Novel", "author": "H"}, thread, "n"
+        )
+        again = await bot._emit_book_embed({"title": "dune a novel"}, thread, "n")
+
+        assert again is False
+        assert thread.send.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_different_books_both_send(self, bot, thread):
+        await bot._emit_book_embed({"title": "Dune", "author": "Herbert"}, thread, "n")
+        await bot._emit_book_embed(
+            {"title": "Piranesi", "author": "Clarke"}, thread, "n"
+        )
+
+        assert thread.send.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_separate_threads_are_independent(self, bot, thread):
+        from unittest.mock import AsyncMock, MagicMock
+
+        other = MagicMock()
+        other.id = 999
+        other.send = AsyncMock()
+        book = {"title": "Dune", "author": "Herbert"}
+
+        await bot._emit_book_embed(book, thread, "n")
+        await bot._emit_book_embed(book, other, "n")
+
+        assert thread.send.await_count == 1
+        assert other.send.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_failed_send_is_retryable(self, bot, thread):
+        thread.send.side_effect = [Exception("discord down"), None]
+        book = {"title": "Dune", "author": "Herbert"}
+
+        first = await bot._emit_book_embed(book, thread, "n")
+        second = await bot._emit_book_embed(book, thread, "n")
+
+        assert (first, second) == (False, True)
+
+
 class TestNormalization:
     def test_strips_punctuation_and_case(self):
         assert _normalize_title("The Blacktongue Thief!") == "the blacktongue thief"

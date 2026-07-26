@@ -281,6 +281,84 @@ def _log_hardcover_detail(
             logger.info(f"Hardcover {action} returned: {title} by {author} ({year})")
 
 
+# The prompt describes a two-step flow (search, then fetch the one book worth
+# showing), so one round was never enough. Three leaves headroom without letting
+# a confused model spend the budget on tool calls.
+MAX_TOOL_ROUNDS = 3
+
+
+def _assistant_turn(assistant_msg, tool_calls) -> dict:
+    """Echo the model's own tool-call turn back so results have something to attach to."""
+    return {
+        "role": "assistant",
+        "content": assistant_msg.content or "",
+        "tool_calls": [
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {
+                    "name": tc.function.name,
+                    "arguments": tc.function.arguments,
+                },
+            }
+            for tc in tool_calls
+        ],
+    }
+
+
+async def _dispatch_tool_call(tc, offered: set[str], executed: list[dict]) -> dict:
+    """Run one tool call and return the tool message to feed back."""
+
+    def message(content: str) -> dict:
+        return {
+            "role": "tool",
+            "tool_call_id": tc.id,
+            "name": tc.function.name,
+            "content": content,
+        }
+
+    tool_name = tc.function.name
+
+    # Withholding a tool from the schema is a hint, not a guarantee - the model
+    # can still name one. Dispatch against what was offered for this request.
+    if tool_name not in offered:
+        logger.warning(
+            "tool_call_not_offered",
+            tool=tool_name,
+            detail="model called a tool that was withheld or does not exist",
+        )
+        return message(f"Error: {tool_name} is not available right now")
+
+    try:
+        tool_input = json.loads(tc.function.arguments) if tc.function.arguments else {}
+    except json.JSONDecodeError:
+        logger.warning(f"Bad tool arguments JSON for {tool_name}")
+        tool_input = {}
+
+    tool = tool_registry.get_tool(tool_name)
+    if tool is None:
+        logger.warning(f"Tool {tool_name} not in registry")
+        return message(f"Error: tool {tool_name} not registered")
+
+    try:
+        result = await tool.execute(**tool_input)
+    except Exception as e:
+        logger.error(f"Tool execution error for {tool_name}: {e}")
+        return message(f"Error executing tool: {e}")
+
+    logger.info(
+        f"tool_call name={tool_name} success={result.success} error={result.error}"
+    )
+    _log_hardcover_detail(tool_name, tool_input, result.data, result.success)
+    executed.append(
+        {"tool_name": tool_name, "tool_input": tool_input, "result": result}
+    )
+
+    return message(
+        _render_tool_result(result.data) if result.success else f"Error: {result.error}"
+    )
+
+
 async def _complete(messages: list[dict], tools: list[dict] | None = None):
     """Issue one chat completion with Marty's standard parameters."""
     kwargs: dict = {
@@ -328,137 +406,34 @@ async def generate_ai_response(
         tools = tool_registry.get_openai_tools(
             exclude=_tools_to_withhold(conversation_history)
         )
-
-        logger.debug(f"Calling LLM with {len(messages)} messages")
-        response = await _complete(messages, tools=tools)
-
-        assistant_msg = response.choices[0].message
-        tool_calls = assistant_msg.tool_calls or []
-
-        if not tool_calls:
-            text = (assistant_msg.content or "").strip()
-            return text or "I'm having trouble generating a response right now.", []
-
-        # Echo the assistant's tool-call turn back before submitting results
-        messages.append(
-            {
-                "role": "assistant",
-                "content": assistant_msg.content or "",
-                "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments,
-                        },
-                    }
-                    for tc in tool_calls
-                ],
-            }
-        )
-
-        executed_tools: list[dict] = []
         offered = {t["function"]["name"] for t in tools}
+        executed_tools: list[dict] = []
 
-        for tc in tool_calls:
-            tool_name = tc.function.name
-            try:
-                tool_input = (
-                    json.loads(tc.function.arguments) if tc.function.arguments else {}
-                )
-            except json.JSONDecodeError:
-                logger.warning(f"Bad tool arguments JSON for {tool_name}")
-                tool_input = {}
+        rounds_used = 0
+        for round_index in range(MAX_TOOL_ROUNDS):
+            rounds_used = round_index + 1
+            logger.debug(f"LLM round {round_index + 1} with {len(messages)} messages")
+            response = await _complete(messages, tools=tools)
+            assistant_msg = response.choices[0].message
+            tool_calls = assistant_msg.tool_calls or []
 
-            # Withholding a tool from the schema is a hint, not a guarantee -
-            # the model can still name one. Dispatch against what was offered
-            # for this request, not against the whole registry.
-            if tool_name not in offered:
-                logger.warning(
-                    "tool_call_not_offered",
-                    tool=tool_name,
-                    detail="model called a tool that was withheld or does not exist",
-                )
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "name": tool_name,
-                        "content": f"Error: {tool_name} is not available right now",
-                    }
-                )
-                continue
+            if not tool_calls:
+                text = (assistant_msg.content or "").strip()
+                if text:
+                    return text, executed_tools
+                break
 
-            tool = tool_registry.get_tool(tool_name)
-            if tool is None:
-                logger.warning(f"Tool {tool_name} not in registry")
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "name": tool_name,
-                        "content": f"Error: tool {tool_name} not registered",
-                    }
-                )
-                continue
+            messages.append(_assistant_turn(assistant_msg, tool_calls))
+            for tc in tool_calls:
+                messages.append(await _dispatch_tool_call(tc, offered, executed_tools))
 
-            try:
-                result = await tool.execute(**tool_input)
-                logger.info(
-                    f"tool_call name={tool_name} "
-                    f"success={result.success} error={result.error}"
-                )
-                _log_hardcover_detail(
-                    tool_name, tool_input, result.data, result.success
-                )
-
-                content = (
-                    _render_tool_result(result.data)
-                    if result.success
-                    else f"Error: {result.error}"
-                )
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "name": tool_name,
-                        "content": content,
-                    }
-                )
-                executed_tools.append(
-                    {
-                        "tool_name": tool_name,
-                        "tool_input": tool_input,
-                        "result": result,
-                    }
-                )
-            except Exception as e:
-                logger.error(f"Tool execution error for {tool_name}: {e}")
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "name": tool_name,
-                        "content": f"Error executing tool: {e}",
-                    }
-                )
-
-        final_response = await _complete(messages, tools=tools)
-        text = (final_response.choices[0].message.content or "").strip()
-        if text:
-            return text, executed_tools
-
-        # Final turn came back empty: retry without the tool history
-        logger.debug("Final response empty, attempting fallback without tool history")
-        fallback = await _complete(
-            [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_turn},
-            ],
-            tools=tools,
+        # Either the model kept reaching for tools, or it answered with nothing.
+        # Drop the tools so prose is the only legal output and it has to commit.
+        logger.info(
+            "tool_loop_forcing_answer", rounds=rounds_used, max_rounds=MAX_TOOL_ROUNDS
         )
-        text = (fallback.choices[0].message.content or "").strip()
+        final = await _complete(messages)
+        text = (final.choices[0].message.content or "").strip()
         return text or "I'm having trouble generating a response right now.", (
             executed_tools
         )
