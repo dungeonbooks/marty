@@ -70,7 +70,12 @@ def _as_lines(value) -> list[str]:
 
 
 def _pair(key, value) -> str:
-    """Render a mapping entry, dropping the null half YAML invents for `a: b`."""
+    """Render a mapping entry as the sentence the author wrote.
+
+    `text: more text` parses to a key and a value, so both halves are joined
+    back together. `text:` with nothing after it parses to a null value, and
+    emitting "text: None" would put a word in the author's mouth.
+    """
     return str(key).strip() if value is None else f"{key}: {value}".strip()
 
 
@@ -186,10 +191,24 @@ def _parse_directives(slug: str, comments: list[str]) -> dict:
             continue
 
         for key, value in parsed.items():
-            if isinstance(key, str) and key.startswith(AGENT_KEY_PREFIX):
+            if not (isinstance(key, str) and key.startswith(AGENT_KEY_PREFIX)):
+                continue
+            # A page may split one directive across several comment blocks, so
+            # a repeated key accumulates. Overwriting would drop the earlier
+            # block silently, which is how guidance goes missing unnoticed.
+            if key in directives:
+                directives[key] = _merge_directive(directives[key], value)
+            else:
                 directives[key] = value
 
     return directives
+
+
+def _merge_directive(existing, incoming):
+    """Combine two values for the same directive key."""
+    if isinstance(existing, dict) and isinstance(incoming, dict):
+        return {**existing, **incoming}
+    return _as_lines(existing) + _as_lines(incoming)
 
 
 def _parse(slug: str, raw: str) -> DocPayload:

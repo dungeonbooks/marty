@@ -103,6 +103,36 @@ class TestParse:
         assert p.agent_directives == {}
         assert p.agent_guidance == []
 
+    def test_repeated_key_across_comments_accumulates(self):
+        """A page may split guidance across blocks. Overwriting would drop the
+        earlier one silently, which is how a directive goes missing unnoticed."""
+        raw = (
+            "---\npublish: true\n---\n"
+            "body\n"
+            "<!--\nagent_guidance:\n  - first rule\n-->\n"
+            "more body\n"
+            "<!--\nagent_guidance:\n  - second rule\n-->\n"
+        )
+        p = _parse("x", raw)
+        assert p.agent_guidance == ["first rule", "second rule"]
+
+    def test_repeated_mapping_key_merges(self):
+        raw = (
+            "---\npublish: true\n---\nbody\n"
+            "<!--\nagent_index:\n  store: hours\n-->\n"
+            "<!--\nagent_index:\n  events: formats\n-->\n"
+        )
+        p = _parse("x", raw)
+        assert p.agent_directives["agent_index"] == {
+            "store": "hours",
+            "events": "formats",
+        }
+
+    def test_directive_ending_in_colon_keeps_the_authors_words(self):
+        raw = "---\npublish: true\n---\nbody\n<!--\nagent_guidance:\n  - note to staff:\n-->\n"
+        p = _parse("x", raw)
+        assert p.agent_guidance == ["note to staff"]
+
     def test_prose_comment_is_not_treated_as_directives(self):
         raw = "---\npublish: true\n---\nbody\n<!-- just a note to self -->\n"
         p = _parse("x", raw)
