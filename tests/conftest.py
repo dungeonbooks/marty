@@ -47,7 +47,10 @@ async def setup_sqlite_db():
 
 
 # Postgres for integration tests
-POSTGRES_URL = "postgresql+asyncpg://marty_test:password@localhost:5432/marty_test"
+POSTGRES_URL = os.getenv(
+    "TEST_DATABASE_URL",
+    "postgresql+asyncpg://marty_test:password@localhost:55432/marty_test",
+)
 pg_engine = create_async_engine(
     POSTGRES_URL,
     echo=False,

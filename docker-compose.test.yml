@@ -5,8 +5,10 @@ services:
       - POSTGRES_USER=marty_test
       - POSTGRES_PASSWORD=password
       - POSTGRES_DB=marty_test
+    # Off the default port so this can run alongside another local Postgres.
+    # Override with TEST_PG_PORT=5432 to go back to the standard port.
     ports:
-      - "5432:5432"
+      - "${TEST_PG_PORT:-55432}:5432"
     volumes:
       - postgres_test_data:/var/lib/postgresql/data
     healthcheck:
@@ -19,8 +21,10 @@ services:
 
   redis-test:
     image: redis:7
+    # Off the default port so this can run alongside another local Redis.
+    # Override with TEST_REDIS_PORT=6379 to go back to the standard port.
     ports:
-      - "6379:6379"
+      - "${TEST_REDIS_PORT:-56379}:6379"
     volumes:
       - redis_test_data:/data
     healthcheck:
