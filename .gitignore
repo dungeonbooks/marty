@@ -138,6 +138,12 @@ celerybeat.pid
 # SageMath parsed files
 *.sage.py
 
+# Credentials
+.ssh/
+*.pem
+id_ed25519*
+id_rsa*
+
 # Environments
 .env
 .envrc
