@@ -1,26 +1,33 @@
-import os
+"""Generate Marty responses against GLM via Neuralwatt (OpenAI-compatible)."""
+
+import json
 from datetime import datetime
 from pathlib import Path
 
 import structlog
-from anthropic import AsyncAnthropic
+from openai import AsyncOpenAI
 from pydantic import BaseModel
 
+from .config import config
 from .tools import tool_registry
 
-# Configure logging
 logger = structlog.get_logger(__name__)
 
 
-# Initialize the Claude client
-def get_claude_client() -> AsyncAnthropic:
-    """Get or create Claude client."""
-    api_key = os.getenv("ANTHROPIC_API_KEY", "")
-    return AsyncAnthropic(api_key=api_key)
+def get_llm_client() -> AsyncOpenAI:
+    """Get or create the Neuralwatt (OpenAI-compatible) client."""
+    if not config.NEURALWATT_API_KEY:
+        logger.warning(
+            "neuralwatt_api_key_missing",
+            detail="NEURALWATT_API_KEY is unset; LLM calls will fail",
+        )
+    return AsyncOpenAI(
+        api_key=config.llm_api_key(),
+        base_url=config.NEURALWATT_BASE_URL,
+    )
 
 
-# Create client instance
-client = get_claude_client()
+client = get_llm_client()
 
 
 class ConversationMessage(BaseModel):
@@ -38,44 +45,149 @@ def load_system_prompt() -> str:
         return prompt_path.read_text(encoding="utf-8").strip()
     except FileNotFoundError:
         logger.warning(f"Prompt file {prompt_path} not found. Using fallback prompt.")
-        return "You are Marty, a helpful AI assistant who works at Dungeon Books. Help customers find great books!"
+        return (
+            "You are Marty, a helpful AI assistant who works at Dungeon Books. "
+            "Help customers find great books!"
+        )
 
 
 MARTY_SYSTEM_PROMPT = load_system_prompt()
 
 
-def _build_system_blocks(base_text: str, contextual_text: str | None) -> list[dict]:
-    """Build system content blocks with cache breakpoints.
+def _build_system_prompt(customer_context: dict | None, docs_index: str) -> str:
+    """Compose the system prompt: stable persona, then docs index, then per-request context.
 
-    Two breakpoints when contextual_text is present: one on the static base
-    (system prompt + docs index, identical across all conversations) and one
-    on the per-conversation context. This way the base block keeps hitting
-    even when the contextual block changes (e.g. current_time ticks).
+    Stable bytes go first so Neuralwatt's prefix cache hits across requests.
+    Variable per-request bytes (customer name, time) go last.
     """
-    base_block = {
-        "type": "text",
-        "text": base_text,
-        "cache_control": {"type": "ephemeral"},
+    parts = [MARTY_SYSTEM_PROMPT]
+
+    if docs_index:
+        parts.append(
+            "## Operational documentation\n\n"
+            "Use the `get_doc` tool with one of the slugs below to fetch the "
+            "full file before answering customer questions about policies, "
+            "hours, store info, returns, events, or orders. Each fetched "
+            "doc returns a body plus `agent_guidance` directives - follow "
+            "those directives when crafting the reply.\n\n"
+            f"{docs_index}"
+        )
+
+    if customer_context:
+        context_info = []
+        if customer_context.get("name"):
+            context_info.append(f"Customer name: {customer_context['name']}")
+        if customer_context.get("phone"):
+            context_info.append(f"Phone: {customer_context['phone']}")
+        if customer_context.get("customer_id"):
+            context_info.append(f"Customer ID: {customer_context['customer_id']}")
+        if context_info:
+            parts.append("Customer Context:\n" + " | ".join(context_info))
+
+        time_context = []
+        if customer_context.get("current_time"):
+            time_context.append(f"Current time: {customer_context['current_time']}")
+        if customer_context.get("current_date"):
+            time_context.append(f"Current date: {customer_context['current_date']}")
+        if customer_context.get("current_day"):
+            time_context.append(f"Day of week: {customer_context['current_day']}")
+        if time_context:
+            parts.append("Current Time & Date:\n" + " | ".join(time_context))
+
+    return "\n\n".join(parts)
+
+
+async def _fetch_docs_index() -> str:
+    try:
+        from src.tools.docs.fetcher import fetch_index, format_index_for_prompt
+
+        payload = await fetch_index()
+        return format_index_for_prompt(payload)
+    except Exception as e:
+        logger.warning(f"docs index fetch failed, continuing without it: {e}")
+        return ""
+
+
+def _log_usage(response) -> None:
+    """Log token, cache, and energy accounting from a Neuralwatt response."""
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return
+
+    details = getattr(usage, "prompt_tokens_details", None)
+    cached = getattr(details, "cached_tokens", None) if details else None
+    cost = getattr(response, "cost", None) or {}
+    energy = getattr(response, "energy", None) or {}
+
+    logger.info(
+        "llm_usage",
+        model=getattr(response, "model", None),
+        prompt_tokens=getattr(usage, "prompt_tokens", None),
+        completion_tokens=getattr(usage, "completion_tokens", None),
+        cached_tokens=cached,
+        request_cost_usd=cost.get("request_cost_usd")
+        if isinstance(cost, dict)
+        else None,
+        energy_joules=energy.get("energy_joules") if isinstance(energy, dict) else None,
+    )
+
+
+def _log_hardcover_detail(
+    tool_name: str, tool_input: dict, result_data, success: bool
+) -> None:
+    if tool_name != "hardcover_api" or not success:
+        return
+    action = tool_input.get("action", "unknown")
+    query = tool_input.get("query", "")
+
+    if isinstance(result_data, list):
+        books_info = []
+        for book in result_data:
+            if isinstance(book, dict):
+                title = book.get("title", "Unknown")
+                author = book.get("author", "Unknown")
+                year = book.get("release_year", "Unknown")
+                books_info.append(f"{title} by {author} ({year})")
+        logger.info(f"Hardcover {action} '{query}' returned: {'; '.join(books_info)}")
+        return
+
+    if isinstance(result_data, dict):
+        if action == "get_trending_books" and "books" in result_data:
+            books = result_data.get("books", [])
+            books_info = []
+            for book in books:
+                if isinstance(book, dict):
+                    title = book.get("title", "Unknown")
+                    author = book.get("author", "Unknown")
+                    year = book.get("release_year", "Unknown")
+                    books_info.append(f"{title} by {author} ({year})")
+            logger.info(
+                f"Hardcover {action} returned: "
+                f"{'; '.join(books_info) if books_info else 'No books found'}"
+            )
+        else:
+            book = result_data
+            title = book.get("title", "Unknown")
+            author = book.get("author", "Unknown")
+            year = book.get("release_year", "Unknown")
+            logger.info(f"Hardcover {action} returned: {title} by {author} ({year})")
+
+
+async def _complete(messages: list[dict], tools: list[dict] | None = None):
+    """Issue one chat completion with Marty's standard parameters."""
+    kwargs: dict = {
+        "model": config.MARTY_MODEL,
+        "max_tokens": config.MARTY_MAX_TOKENS,
+        "temperature": config.MARTY_TEMPERATURE,
+        "messages": messages,
+        "reasoning_effort": config.MARTY_CHAT_REASONING_EFFORT,
     }
-    if contextual_text:
-        return [
-            base_block,
-            {
-                "type": "text",
-                "text": contextual_text,
-                "cache_control": {"type": "ephemeral"},
-            },
-        ]
-    return [base_block]
+    if tools:
+        kwargs["tools"] = tools
 
-
-def _tools_with_cache(tools: list[dict]) -> list[dict]:
-    """Tag the last tool with cache_control to cache the tools block."""
-    if not tools:
-        return tools
-    cached = [dict(t) for t in tools]
-    cached[-1] = {**cached[-1], "cache_control": {"type": "ephemeral"}}
-    return cached
+    response = await client.chat.completions.create(**kwargs)
+    _log_usage(response)
+    return response
 
 
 async def generate_ai_response(
@@ -83,8 +195,7 @@ async def generate_ai_response(
     conversation_history: list[ConversationMessage],
     customer_context: dict | None = None,
 ) -> tuple[str, list[dict]]:
-    """
-    Generate an AI response using Claude.
+    """Generate a Marty response, executing tool calls as needed.
 
     Args:
         user_message: The current message from the user
@@ -92,307 +203,130 @@ async def generate_ai_response(
         customer_context: Optional context about the customer
 
     Returns:
-        Tuple of (AI-generated response, list of tool results)
+        Tuple of (AI-generated response, list of executed tool records)
     """
     try:
-        # Build the conversation history for Claude
-        messages = []
+        docs_index = await _fetch_docs_index()
+        system_prompt = _build_system_prompt(customer_context, docs_index)
 
-        # Add conversation history
+        messages: list[dict] = [{"role": "system", "content": system_prompt}]
         for msg in conversation_history:
             messages.append({"role": msg.role, "content": msg.content})
-
-        # Add the current user message
         messages.append({"role": "user", "content": user_message})
 
-        base_prompt = MARTY_SYSTEM_PROMPT
+        tools = tool_registry.get_openai_tools()
 
-        try:
-            from src.tools.docs.fetcher import fetch_index, format_index_for_prompt
+        logger.debug(f"Calling LLM with {len(messages)} messages")
+        response = await _complete(messages, tools=tools)
 
-            index_payload = await fetch_index()
-            base_prompt += (
-                "\n\n## Operational documentation\n\n"
-                "Use the `get_doc` tool with one of the slugs below to fetch the "
-                "full file before answering customer questions about policies, "
-                "hours, store info, returns, events, or orders. Each fetched "
-                "doc returns a body plus `agent_guidance` directives — follow "
-                "those directives when crafting the reply.\n\n"
-                f"{format_index_for_prompt(index_payload)}"
-            )
-        except Exception as e:
-            logger.warning(f"docs index fetch failed, continuing without it: {e}")
+        assistant_msg = response.choices[0].message
+        tool_calls = assistant_msg.tool_calls or []
 
-        contextual_text: str | None = None
-        if customer_context:
-            sections: list[str] = []
+        if not tool_calls:
+            text = (assistant_msg.content or "").strip()
+            return text or "I'm having trouble generating a response right now.", []
 
-            context_info = []
-            if customer_context.get("name"):
-                context_info.append(f"Customer name: {customer_context['name']}")
-            if customer_context.get("phone"):
-                context_info.append(f"Phone: {customer_context['phone']}")
-            if customer_context.get("customer_id"):
-                context_info.append(f"Customer ID: {customer_context['customer_id']}")
-            if context_info:
-                sections.append(f"Customer Context:\n{' | '.join(context_info)}")
-
-            time_context = []
-            if customer_context.get("current_time"):
-                time_context.append(f"Current time: {customer_context['current_time']}")
-            if customer_context.get("current_date"):
-                time_context.append(f"Current date: {customer_context['current_date']}")
-            if customer_context.get("current_day"):
-                time_context.append(f"Day of week: {customer_context['current_day']}")
-            if time_context:
-                sections.append(f"Current Time & Date:\n{' | '.join(time_context)}")
-
-            if sections:
-                contextual_text = "\n\n".join(sections)
-
-        system_blocks = _build_system_blocks(base_prompt, contextual_text)
-        cached_tools = _tools_with_cache(tool_registry.get_claude_tools())
-
-        # Generate response with Claude including tools
-        logger.debug(f"Calling Claude API with {len(messages)} messages")
-        response = await client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=500,
-            temperature=0.7,
-            system=system_blocks,
-            messages=messages,
-            tools=cached_tools,
+        # Echo the assistant's tool-call turn back before submitting results
+        messages.append(
+            {
+                "role": "assistant",
+                "content": assistant_msg.content or "",
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        },
+                    }
+                    for tc in tool_calls
+                ],
+            }
         )
-        logger.debug(f"Claude API response received: {type(response)}")
-        usage = getattr(response, "usage", None)
-        if usage is not None:
-            logger.info(
-                "claude_usage",
-                input_tokens=getattr(usage, "input_tokens", None),
-                output_tokens=getattr(usage, "output_tokens", None),
-                cache_creation_input_tokens=getattr(
-                    usage, "cache_creation_input_tokens", None
-                ),
-                cache_read_input_tokens=getattr(usage, "cache_read_input_tokens", None),
-            )
 
-        # Handle tool use and generate final response
-        if response.content:
-            logger.debug(f"Response content type: {type(response.content)}")
-            logger.debug(f"Response content length: {len(response.content)}")
+        executed_tools: list[dict] = []
+        for tc in tool_calls:
+            tool_name = tc.function.name
+            try:
+                tool_input = (
+                    json.loads(tc.function.arguments) if tc.function.arguments else {}
+                )
+            except json.JSONDecodeError:
+                logger.warning(f"Bad tool arguments JSON for {tool_name}")
+                tool_input = {}
 
-            tool_results = []
-            executed_tools = []  # Track tool executions for return
-            messages.append({"role": "assistant", "content": response.content})
+            tool = tool_registry.get_tool(tool_name)
+            if tool is None:
+                logger.warning(f"Tool {tool_name} not in registry")
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "name": tool_name,
+                        "content": f"Error: tool {tool_name} not registered",
+                    }
+                )
+                continue
 
-            # Execute any tool calls
-            for content_block in response.content:
-                logger.debug(f"Content block type: {type(content_block)}")
-                if hasattr(content_block, "type") and content_block.type == "tool_use":
-                    tool_name = content_block.name
-                    tool_input = content_block.input
-                    tool_use_id = content_block.id
-
-                    # Execute the tool
-                    tool = tool_registry.get_tool(tool_name)
-                    if tool:
-                        try:
-                            result = await tool.execute(**tool_input)
-
-                            logger.info(
-                                f"tool_call name={tool_name} "
-                                f"success={result.success} error={result.error}"
-                            )
-
-                            # Log Hardcover API response details
-                            if tool_name == "hardcover_api" and result.success:
-                                action = tool_input.get("action", "unknown")
-                                query = tool_input.get("query", "")
-
-                                if isinstance(result.data, list):
-                                    books_info = []
-                                    for book in result.data:
-                                        if isinstance(book, dict):
-                                            title = book.get("title", "Unknown")
-                                            author = book.get("author", "Unknown")
-                                            year = book.get("release_year", "Unknown")
-                                            books_info.append(
-                                                f"{title} by {author} ({year})"
-                                            )
-                                    logger.info(
-                                        f"Hardcover {action} '{query}' returned: {'; '.join(books_info)}"
-                                    )
-
-                                elif isinstance(result.data, dict):
-                                    # Handle trending books response which has books list nested inside
-                                    if (
-                                        action == "get_trending_books"
-                                        and "books" in result.data
-                                    ):
-                                        books = result.data.get("books", [])
-                                        books_info = []
-                                        for book in books:
-                                            if isinstance(book, dict):
-                                                title = book.get("title", "Unknown")
-                                                author = book.get("author", "Unknown")
-                                                year = book.get(
-                                                    "release_year", "Unknown"
-                                                )
-                                                books_info.append(
-                                                    f"{title} by {author} ({year})"
-                                                )
-                                        logger.info(
-                                            f"Hardcover {action} returned: {'; '.join(books_info) if books_info else 'No books found'}"
-                                        )
-                                    else:
-                                        # Handle single book response
-                                        book = result.data
-                                        title = book.get("title", "Unknown")
-                                        author = book.get("author", "Unknown")
-                                        year = book.get("release_year", "Unknown")
-                                        logger.info(
-                                            f"Hardcover {action} returned: {title} by {author} ({year})"
-                                        )
-
-                            tool_results.append(
-                                {
-                                    "type": "tool_result",
-                                    "tool_use_id": tool_use_id,
-                                    "content": str(result.data)
-                                    if result.success
-                                    else f"Error: {result.error}",
-                                }
-                            )
-                            # Track executed tool for return
-                            executed_tools.append(
-                                {
-                                    "tool_name": tool_name,
-                                    "tool_input": tool_input,
-                                    "result": result,
-                                }
-                            )
-                        except Exception as e:
-                            logger.error(f"Tool execution error: {e}")
-                            tool_results.append(
-                                {
-                                    "type": "tool_result",
-                                    "tool_use_id": tool_use_id,
-                                    "content": f"Error executing tool: {str(e)}",
-                                }
-                            )
-
-            # If tools were used, get final response
-            if tool_results:
-                # Format tool results properly for Claude
-                tool_results_content = []
-                for result in tool_results:
-                    tool_results_content.append(
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": result["tool_use_id"],
-                            "content": result["content"],
-                        }
-                    )
-
-                messages.append({"role": "user", "content": tool_results_content})
-                logger.debug(
-                    f"Added tool results to messages: {len(tool_results)} results"
+            try:
+                result = await tool.execute(**tool_input)
+                logger.info(
+                    f"tool_call name={tool_name} "
+                    f"success={result.success} error={result.error}"
+                )
+                _log_hardcover_detail(
+                    tool_name, tool_input, result.data, result.success
                 )
 
-                final_response = await client.messages.create(
-                    model="claude-sonnet-4-6",
-                    max_tokens=500,
-                    temperature=0.7,
-                    system=system_blocks,
-                    messages=messages,
+                content = (
+                    str(result.data) if result.success else f"Error: {result.error}"
                 )
-                logger.debug(f"Final response received: {type(final_response)}")
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "name": tool_name,
+                        "content": content,
+                    }
+                )
+                executed_tools.append(
+                    {
+                        "tool_name": tool_name,
+                        "tool_input": tool_input,
+                        "result": result,
+                    }
+                )
+            except Exception as e:
+                logger.error(f"Tool execution error for {tool_name}: {e}")
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "name": tool_name,
+                        "content": f"Error executing tool: {e}",
+                    }
+                )
 
-                if final_response.content and len(final_response.content) > 0:
-                    content_block = final_response.content[0]
-                    logger.debug(f"Final content block type: {type(content_block)}")
+        final_response = await _complete(messages, tools=tools)
+        text = (final_response.choices[0].message.content or "").strip()
+        if text:
+            return text, executed_tools
 
-                    # Try different ways to extract text
-                    if hasattr(content_block, "text"):
-                        response_text = content_block.text
-                    elif hasattr(content_block, "content"):
-                        response_text = content_block.content
-                    else:
-                        response_text = str(content_block)
-
-                    logger.debug(f"Final response text: {response_text[:100]}...")
-                    return response_text, executed_tools
-                else:
-                    logger.warning(
-                        "Final response has no content, checking initial response for text"
-                    )
-
-                    # Check if the initial response had any text content alongside tool calls
-                    initial_text = ""
-                    for content_block in response.content:
-                        if (
-                            hasattr(content_block, "type")
-                            and content_block.type == "text"
-                        ):
-                            if hasattr(content_block, "text"):
-                                initial_text += content_block.text
-
-                    if initial_text.strip():
-                        logger.debug(
-                            f"Using text from initial response: {initial_text[:100]}..."
-                        )
-                        return initial_text.strip(), executed_tools
-
-                    # Fallback: try to generate a response without tools
-                    logger.debug("Attempting fallback response without tools")
-                    fallback_response = await client.messages.create(
-                        model="claude-sonnet-4-6",
-                        max_tokens=500,
-                        temperature=0.7,
-                        system=system_blocks,
-                        messages=[{"role": "user", "content": user_message}],
-                    )
-
-                    if fallback_response.content and len(fallback_response.content) > 0:
-                        content_block = fallback_response.content[0]
-                        if hasattr(content_block, "text"):
-                            response_text = content_block.text
-                        else:
-                            response_text = str(content_block)
-                    else:
-                        response_text = (
-                            "I'm having trouble generating a response right now."
-                        )
-                    return response_text, executed_tools
-            else:
-                # No tools used, extract text directly
-                logger.debug("No tools used, extracting text directly")
-                if len(response.content) > 0:
-                    content_block = response.content[0]
-                    logger.debug(f"Content block type: {type(content_block)}")
-                    logger.debug(f"Content block attributes: {dir(content_block)}")
-
-                    # Try different ways to extract text
-                    if hasattr(content_block, "text"):
-                        response_text = content_block.text
-                    elif hasattr(content_block, "content"):
-                        response_text = content_block.content
-                    else:
-                        response_text = str(content_block)
-
-                    logger.debug(f"Extracted response text: {response_text[:100]}...")
-                else:
-                    logger.error("Response has no content blocks")
-                    response_text = (
-                        "I'm having trouble generating a response right now."
-                    )
-                return response_text, []
-        else:
-            logger.error("Response has no content")
-            response_text = "I'm having trouble generating a response right now."
-
-        return response_text, []
+        # Final turn came back empty: retry without the tool history
+        logger.debug("Final response empty, attempting fallback without tool history")
+        fallback = await _complete(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            tools=tools,
+        )
+        text = (fallback.choices[0].message.content or "").strip()
+        return text or "I'm having trouble generating a response right now.", (
+            executed_tools
+        )
 
     except Exception as e:
         logger.error(f"Error generating AI response: {e}")
-        return "Sorry, I'm having trouble thinking right now. Can you try again? 🤔", []
+        return "sorry, brain's lagging. can you try again?", []

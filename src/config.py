@@ -16,11 +16,33 @@ except ImportError:
     pass
 
 
+PLACEHOLDER_API_KEY = "not-configured"  # noqa: S105
+
+
 class Config:
     """Application configuration."""
 
     # Database
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./marty.db")
+
+    # LLM (Neuralwatt, OpenAI-compatible)
+    NEURALWATT_API_KEY: str = os.getenv("NEURALWATT_API_KEY", "")
+    NEURALWATT_BASE_URL: str = os.getenv(
+        "NEURALWATT_BASE_URL", "https://api.neuralwatt.com/v1"
+    )
+    MARTY_MODEL: str = os.getenv("MARTY_MODEL", "glm-5.2")
+
+    # GLM-5.2 defaults to `max` reasoning effort. Chat replies are 1-5 sentences,
+    # so the extra thinking is billed as output for no benefit. The optimizer does
+    # structured extraction off the hot path, where depth is worth the latency.
+    MARTY_CHAT_REASONING_EFFORT: str = os.getenv(
+        "MARTY_CHAT_REASONING_EFFORT", "minimal"
+    )
+    MARTY_OPTIMIZER_REASONING_EFFORT: str = os.getenv(
+        "MARTY_OPTIMIZER_REASONING_EFFORT", "high"
+    )
+    MARTY_MAX_TOKENS: int = int(os.getenv("MARTY_MAX_TOKENS", "500"))
+    MARTY_TEMPERATURE: float = float(os.getenv("MARTY_TEMPERATURE", "0.7"))
 
     # Hardcover API Configuration
     HARDCOVER_API_TOKEN: str | None = os.getenv("HARDCOVER_API_TOKEN")
@@ -47,6 +69,17 @@ class Config:
 
     # Conversation
     CONVERSATION_HISTORY_LIMIT: int = int(os.getenv("CONVERSATION_HISTORY_LIMIT", "10"))
+
+    @classmethod
+    def llm_api_key(cls) -> str:
+        """The Neuralwatt key, or a placeholder that keeps construction working.
+
+        The OpenAI SDK refuses to build a client without an api_key, and clients
+        are constructed at import time, so an unset key would make the package
+        unimportable rather than merely unusable. Requests with the placeholder
+        are rejected by the API; startup validation catches it first in practice.
+        """
+        return cls.NEURALWATT_API_KEY or PLACEHOLDER_API_KEY
 
     @classmethod
     def hardcover_token_expiry(cls) -> datetime | None:

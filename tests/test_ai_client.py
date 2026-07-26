@@ -5,7 +5,7 @@ Tests prompt loading, response generation, error handling, and mocking.
 
 import os
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -15,6 +15,7 @@ from src.ai_client import (
     generate_ai_response,
     load_system_prompt,
 )
+from src.config import config
 
 
 class TestSystemPromptLoading:
@@ -72,21 +73,21 @@ class TestGenerateAIResponse:
     """Test AI response generation with mocked Claude API."""
 
     @pytest.mark.asyncio
-    async def test_generate_ai_response_success(self, mock_claude_api, claude_response):
+    async def test_generate_ai_response_success(self, mock_llm_api, llm_response):
         """Test successful AI response generation."""
         # Use the global mock with a specific response
-        mock_claude_api.messages.create.return_value = claude_response(
+        mock_llm_api.chat.completions.create.return_value = llm_response(
             "hey! what're you looking for?"
         )
 
         response = await generate_ai_response("Hello Marty!", [])
 
         assert response == ("hey! what're you looking for?", [])
-        mock_claude_api.messages.create.assert_called_once()
+        mock_llm_api.chat.completions.create.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_generate_ai_response_with_conversation_history(
-        self, mock_claude_api, claude_response
+        self, mock_llm_api, llm_response
     ):
         """Test AI response generation with conversation history."""
         from datetime import datetime
@@ -103,7 +104,7 @@ class TestGenerateAIResponse:
         ]
 
         # Use the global mock with a specific response
-        mock_claude_api.messages.create.return_value = claude_response(
+        mock_llm_api.chat.completions.create.return_value = llm_response(
             "try Effective Python"
         )
 
@@ -112,20 +113,21 @@ class TestGenerateAIResponse:
         assert response == ("try Effective Python", [])
 
         # Check that conversation history was included in the first call
-        call_args = mock_claude_api.messages.create.call_args
+        call_args = mock_llm_api.chat.completions.create.call_args
         messages = call_args[1]["messages"]
-        # The first call should have 3 messages: 2 history + 1 current
-        assert len(messages) >= 3  # May have additional tool-related messages
-        assert messages[0]["role"] == "user"
-        assert messages[0]["content"] == "I need a Python book"
-        assert messages[1]["role"] == "assistant"
-        assert messages[1]["content"] == "what level are you?"
-        assert messages[2]["role"] == "user"
-        assert messages[2]["content"] == "intermediate"
+        # system turn, then 2 history messages, then the current one
+        assert len(messages) >= 4
+        assert messages[0]["role"] == "system"
+        assert messages[1]["role"] == "user"
+        assert messages[1]["content"] == "I need a Python book"
+        assert messages[2]["role"] == "assistant"
+        assert messages[2]["content"] == "what level are you?"
+        assert messages[3]["role"] == "user"
+        assert messages[3]["content"] == "intermediate"
 
     @pytest.mark.asyncio
     async def test_generate_ai_response_with_customer_context(
-        self, mock_claude_api, claude_response
+        self, mock_llm_api, llm_response
     ):
         """Test AI response generation with customer context."""
         customer_context = {
@@ -138,7 +140,7 @@ class TestGenerateAIResponse:
         }
 
         # Use the global mock with a specific response
-        mock_claude_api.messages.create.return_value = claude_response(
+        mock_llm_api.chat.completions.create.return_value = llm_response(
             "hey John! looking for any specific genre?"
         )
 
@@ -147,8 +149,8 @@ class TestGenerateAIResponse:
         assert response == ("hey John! looking for any specific genre?", [])
 
         # Check that customer context was included in system prompt
-        call_args = mock_claude_api.messages.create.call_args
-        system_prompt = "\n\n".join(b["text"] for b in call_args[1]["system"])
+        call_args = mock_llm_api.chat.completions.create.call_args
+        system_prompt = call_args[1]["messages"][0]["content"]
         assert "Customer name: John Doe" in system_prompt
         assert "Phone: +1234567890" in system_prompt
         assert "Customer ID: 123" in system_prompt
@@ -158,7 +160,7 @@ class TestGenerateAIResponse:
 
     @pytest.mark.asyncio
     async def test_generate_ai_response_with_cultural_name(
-        self, mock_claude_api, claude_response
+        self, mock_llm_api, llm_response
     ):
         """Test AI response generation with culturally diverse names."""
         customer_context = {
@@ -168,7 +170,7 @@ class TestGenerateAIResponse:
         }
 
         # Use the global mock with a specific response
-        mock_claude_api.messages.create.return_value = claude_response(
+        mock_llm_api.chat.completions.create.return_value = llm_response(
             "¡Hola José García-López!"
         )
 
@@ -177,14 +179,12 @@ class TestGenerateAIResponse:
         assert response == ("¡Hola José García-López!", [])
 
         # Check that full name is passed to Claude for cultural handling
-        call_args = mock_claude_api.messages.create.call_args
-        system_prompt = "\n\n".join(b["text"] for b in call_args[1]["system"])
+        call_args = mock_llm_api.chat.completions.create.call_args
+        system_prompt = call_args[1]["messages"][0]["content"]
         assert "Customer name: José García-López" in system_prompt
 
     @pytest.mark.asyncio
-    async def test_generate_ai_response_single_name(
-        self, mock_claude_api, claude_response
-    ):
+    async def test_generate_ai_response_single_name(self, mock_llm_api, llm_response):
         """Test AI response generation with single name (e.g., Madonna, Cher)."""
         customer_context = {
             "name": "Madonna",
@@ -193,7 +193,7 @@ class TestGenerateAIResponse:
         }
 
         # Use the global mock with a specific response
-        mock_claude_api.messages.create.return_value = claude_response(
+        mock_llm_api.chat.completions.create.return_value = llm_response(
             "hey Madonna! what can I help you with?"
         )
 
@@ -202,17 +202,17 @@ class TestGenerateAIResponse:
         assert response == ("hey Madonna! what can I help you with?", [])
 
         # Check that single name is handled correctly
-        call_args = mock_claude_api.messages.create.call_args
-        system_prompt = "\n\n".join(b["text"] for b in call_args[1]["system"])
+        call_args = mock_llm_api.chat.completions.create.call_args
+        system_prompt = call_args[1]["messages"][0]["content"]
         assert "Customer name: Madonna" in system_prompt
 
     @pytest.mark.asyncio
     async def test_generate_ai_response_no_customer_context(
-        self, mock_claude_api, claude_response
+        self, mock_llm_api, llm_response
     ):
         """Test AI response generation without customer context."""
         # Use the global mock with a specific response
-        mock_claude_api.messages.create.return_value = claude_response(
+        mock_llm_api.chat.completions.create.return_value = llm_response(
             "hey! what can I help you with?"
         )
 
@@ -221,18 +221,18 @@ class TestGenerateAIResponse:
         assert response == ("hey! what can I help you with?", [])
 
         # Check that only base system prompt is used
-        call_args = mock_claude_api.messages.create.call_args
-        system_prompt = "\n\n".join(b["text"] for b in call_args[1]["system"])
+        call_args = mock_llm_api.chat.completions.create.call_args
+        system_prompt = call_args[1]["messages"][0]["content"]
         assert "Customer Context:" not in system_prompt
         assert "Current Time & Date:" not in system_prompt
 
     @pytest.mark.asyncio
     async def test_generate_ai_response_empty_customer_context(
-        self, mock_claude_api, claude_response
+        self, mock_llm_api, llm_response
     ):
         """Test AI response generation with empty customer context."""
         # Use the global mock with a specific response
-        mock_claude_api.messages.create.return_value = claude_response(
+        mock_llm_api.chat.completions.create.return_value = llm_response(
             "hello! what are you looking for?"
         )
 
@@ -241,14 +241,14 @@ class TestGenerateAIResponse:
         assert response == ("hello! what are you looking for?", [])
 
         # Check that empty context doesn't add extra sections
-        call_args = mock_claude_api.messages.create.call_args
-        system_prompt = "\n\n".join(b["text"] for b in call_args[1]["system"])
+        call_args = mock_llm_api.chat.completions.create.call_args
+        system_prompt = call_args[1]["messages"][0]["content"]
         assert "Customer Context:" not in system_prompt
         assert "Current Time & Date:" not in system_prompt
 
     @pytest.mark.asyncio
     async def test_generate_ai_response_minimal_context(
-        self, mock_claude_api, claude_response
+        self, mock_llm_api, llm_response
     ):
         """Test AI response generation with minimal customer context."""
         customer_context = {
@@ -257,7 +257,7 @@ class TestGenerateAIResponse:
         }
 
         # Use the global mock with a specific response
-        mock_claude_api.messages.create.return_value = claude_response(
+        mock_llm_api.chat.completions.create.return_value = llm_response(
             "hello! what are you looking for?"
         )
 
@@ -266,71 +266,65 @@ class TestGenerateAIResponse:
         assert response == ("hello! what are you looking for?", [])
 
         # Check that only customer_id is included
-        call_args = mock_claude_api.messages.create.call_args
-        system_prompt = "\n\n".join(b["text"] for b in call_args[1]["system"])
+        call_args = mock_llm_api.chat.completions.create.call_args
+        system_prompt = call_args[1]["messages"][0]["content"]
         assert "Customer ID: 999" in system_prompt
         assert "Customer name:" not in system_prompt
         assert "Phone:" not in system_prompt
 
     @pytest.mark.asyncio
-    async def test_generate_ai_response_api_error(self, mock_claude_api):
+    async def test_generate_ai_response_api_error(self, mock_llm_api):
         """Test error handling when Claude API fails."""
         # Make the mock raise an exception
-        mock_claude_api.messages.create.side_effect = Exception("API Error")
+        mock_llm_api.chat.completions.create.side_effect = Exception("API Error")
 
         with patch("src.ai_client.logger.error") as mock_error:
             response = await generate_ai_response("Hello", [])
 
-            assert "having trouble thinking" in response[0]
-            assert "🤔" in response[0]
+            assert "brain's lagging" in response[0]
             assert response[1] == []
             mock_error.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_generate_ai_response_empty_content(self, mock_claude_api):
+    async def test_generate_ai_response_empty_content(self, mock_llm_api, llm_response):
         """Test handling of empty response content."""
-        # Create a mock response with empty content
-        mock_response = MagicMock()
-        mock_response.content = []
-        mock_claude_api.messages.create.return_value = mock_response
+        mock_llm_api.chat.completions.create.return_value = llm_response("")
 
         response = await generate_ai_response("Hello", [])
 
         assert response == ("I'm having trouble generating a response right now.", [])
 
     @pytest.mark.asyncio
-    async def test_generate_ai_response_non_text_content(self, mock_claude_api):
-        """Test handling of non-text content in response."""
-        # Create a mock response that returns a string when converted to string
-        mock_response = MagicMock()
-        mock_content = MagicMock()
-        mock_content.text = "fallback content"  # Just give it a text attribute
-        mock_response.content = [mock_content]
-        mock_claude_api.messages.create.return_value = mock_response
+    async def test_generate_ai_response_whitespace_content(
+        self, mock_llm_api, llm_response
+    ):
+        """Whitespace-only content is treated as empty."""
+        mock_llm_api.chat.completions.create.return_value = llm_response("   \n  ")
 
         response = await generate_ai_response("Hello", [])
 
-        # Should get the text content
-        assert isinstance(response, tuple)
-        assert response == ("fallback content", [])
+        assert response == ("I'm having trouble generating a response right now.", [])
 
     @pytest.mark.asyncio
-    async def test_claude_api_parameters(self, mock_claude_api, claude_response):
-        """Test that correct parameters are passed to Claude API."""
+    async def test_llm_api_parameters(self, mock_llm_api, llm_response):
+        """Test that correct parameters are passed to the LLM API."""
         # Use the global mock with a specific response
-        mock_claude_api.messages.create.return_value = claude_response("test response")
+        mock_llm_api.chat.completions.create.return_value = llm_response(
+            "test response"
+        )
 
         await generate_ai_response("Hello", [])
 
-        call_args = mock_claude_api.messages.create.call_args
-        assert call_args[1]["model"] == "claude-sonnet-4-6"
-        assert call_args[1]["max_tokens"] == 500
-        assert call_args[1]["temperature"] == 0.7
-        assert "system" in call_args[1]
-        assert "messages" in call_args[1]
+        call_args = mock_llm_api.chat.completions.create.call_args
+        assert call_args[1]["model"] == config.MARTY_MODEL
+        assert call_args[1]["max_tokens"] == config.MARTY_MAX_TOKENS
+        assert call_args[1]["temperature"] == config.MARTY_TEMPERATURE
+        assert call_args[1]["reasoning_effort"] == config.MARTY_CHAT_REASONING_EFFORT
+        assert call_args[1]["messages"][0]["role"] == "system"
+        assert call_args[1]["tools"]
 
     @pytest.mark.asyncio
-    async def test_system_prompt_with_context(self, mock_claude_api, claude_response):
+    async def test_system_prompt_with_context(self, mock_llm_api, llm_response):
         """Test system prompt construction with customer context."""
         customer_context = {
             "name": "John",
@@ -342,12 +336,12 @@ class TestGenerateAIResponse:
         }
 
         # Use the global mock with a specific response
-        mock_claude_api.messages.create.return_value = claude_response("hey John!")
+        mock_llm_api.chat.completions.create.return_value = llm_response("hey John!")
 
         await generate_ai_response("Hello", [], customer_context)
 
-        call_args = mock_claude_api.messages.create.call_args
-        system_prompt = "\n\n".join(b["text"] for b in call_args[1]["system"])
+        call_args = mock_llm_api.chat.completions.create.call_args
+        system_prompt = call_args[1]["messages"][0]["content"]
 
         # Check base prompt is included
         assert len(system_prompt) > 1000  # Should be substantial
@@ -399,86 +393,91 @@ class TestSystemPromptContent:
         assert len(MARTY_SYSTEM_PROMPT) > 10
 
     @pytest.mark.asyncio
-    async def test_system_prompt_used_in_generation(
-        self, mock_claude_api, claude_response
-    ):
+    async def test_system_prompt_used_in_generation(self, mock_llm_api, llm_response):
         """Test that system prompt is used in AI generation."""
         # Use the global mock with a specific response
-        mock_claude_api.messages.create.return_value = claude_response("test response")
+        mock_llm_api.chat.completions.create.return_value = llm_response(
+            "test response"
+        )
 
         await generate_ai_response("Hello", [])
 
-        call_args = mock_claude_api.messages.create.call_args
-        system_prompt = "\n\n".join(b["text"] for b in call_args[1]["system"])
+        call_args = mock_llm_api.chat.completions.create.call_args
+        system_prompt = call_args[1]["messages"][0]["content"]
 
         # Should start with the loaded system prompt
         assert "martinus trismegistus" in system_prompt
         assert len(system_prompt) > 1000
 
 
-class TestPromptCaching:
-    """Test cache_control placement on system blocks and tools."""
+class TestPromptOrdering:
+    """Neuralwatt caches on the literal token prefix, so stable bytes must come first.
+
+    There is no cache_control breakpoint to set - ordering is the only lever.
+    """
 
     @pytest.mark.asyncio
-    async def test_cache_control_on_both_system_blocks_with_context(
-        self, mock_claude_api, claude_response
-    ):
-        mock_claude_api.messages.create.return_value = claude_response("ok")
+    async def test_persona_precedes_volatile_context(self, mock_llm_api, llm_response):
+        mock_llm_api.chat.completions.create.return_value = llm_response("ok")
         await generate_ai_response(
             "hi", [], {"name": "John", "current_date": "2024-01-15"}
         )
-        system_blocks = mock_claude_api.messages.create.call_args[1]["system"]
-        assert isinstance(system_blocks, list)
-        assert len(system_blocks) == 2
-        assert system_blocks[0]["cache_control"] == {"type": "ephemeral"}
-        assert system_blocks[1]["cache_control"] == {"type": "ephemeral"}
+        system_prompt = mock_llm_api.chat.completions.create.call_args[1]["messages"][
+            0
+        ]["content"]
+        assert system_prompt.index("martinus trismegistus") < system_prompt.index(
+            "Customer Context:"
+        )
+        assert system_prompt.index("Customer Context:") < system_prompt.index(
+            "Current Time & Date:"
+        )
 
     @pytest.mark.asyncio
-    async def test_cache_control_on_single_block_without_context(
-        self, mock_claude_api, claude_response
-    ):
-        mock_claude_api.messages.create.return_value = claude_response("ok")
-        await generate_ai_response("hi", [])
-        system_blocks = mock_claude_api.messages.create.call_args[1]["system"]
-        assert isinstance(system_blocks, list)
-        assert len(system_blocks) == 1
-        assert system_blocks[0]["cache_control"] == {"type": "ephemeral"}
+    async def test_prefix_identical_across_customers(self, mock_llm_api, llm_response):
+        """Everything up to the per-customer suffix must be byte-identical."""
+        mock_llm_api.chat.completions.create.return_value = llm_response("ok")
+
+        await generate_ai_response("hi", [], {"name": "John"})
+        first = mock_llm_api.chat.completions.create.call_args[1]["messages"][0][
+            "content"
+        ]
+
+        await generate_ai_response("hi", [], {"name": "Jane"})
+        second = mock_llm_api.chat.completions.create.call_args[1]["messages"][0][
+            "content"
+        ]
+
+        shared = first.split("Customer Context:")[0]
+        assert shared == second.split("Customer Context:")[0]
+        assert first != second
 
     @pytest.mark.asyncio
-    async def test_cache_control_on_last_tool(self, mock_claude_api, claude_response):
-        mock_claude_api.messages.create.return_value = claude_response("ok")
+    async def test_tools_sent_on_every_call(self, mock_llm_api, llm_response):
+        """A call that omits tools changes the prefix and cold-prefills."""
+        mock_llm_api.chat.completions.create.return_value = llm_response("ok")
         await generate_ai_response("hi", [])
-        tools = mock_claude_api.messages.create.call_args[1]["tools"]
-        assert tools, "tools should be present on first-pass call"
-        for t in tools[:-1]:
-            assert "cache_control" not in t
-        assert tools[-1]["cache_control"] == {"type": "ephemeral"}
+        for call in mock_llm_api.chat.completions.create.call_args_list:
+            assert call[1].get("tools"), "every call must carry the tool definitions"
 
 
 class TestResponseProcessing:
     """Test response processing and content extraction."""
 
     @pytest.mark.asyncio
-    async def test_response_content_extraction(self, mock_claude_api):
+    async def test_response_content_extraction(self, mock_llm_api, llm_response):
         """Test proper extraction of response content."""
-        # Create a mock response with proper structure
-        mock_response = MagicMock()
-        mock_content = MagicMock()
-        mock_content.text = "extracted text response"
-        mock_response.content = [mock_content]
-        mock_claude_api.messages.create.return_value = mock_response
+        mock_llm_api.chat.completions.create.return_value = llm_response(
+            "extracted text response"
+        )
 
         response = await generate_ai_response("Hello", [])
 
         assert response == ("extracted text response", [])
 
     @pytest.mark.asyncio
-    async def test_response_fallback_handling(self, mock_claude_api):
-        """Test fallback handling for malformed responses."""
-        # Create a mock response with no content
-        mock_response = MagicMock()
-        mock_response.content = None
-        mock_claude_api.messages.create.return_value = mock_response
+    async def test_response_fallback_handling(self, mock_llm_api, llm_response):
+        """Test fallback handling when the model returns no content."""
+        mock_llm_api.chat.completions.create.return_value = llm_response(None)
 
         response = await generate_ai_response("Hello", [])
 
