@@ -30,7 +30,9 @@ class Config:
     NEURALWATT_BASE_URL: str = os.getenv(
         "NEURALWATT_BASE_URL", "https://api.neuralwatt.com/v1"
     )
-    MARTY_MODEL: str = os.getenv("MARTY_MODEL", "glm-5.2")
+    # Pinned: the `glm-5.2` alias load-balances across backends. Measured over 12
+    # identical requests it cost $0.003686 against $0.000644 pinned, ~5.7x.
+    MARTY_MODEL: str = os.getenv("MARTY_MODEL", "glm-5.2-short")
 
     # GLM-5.2 defaults to `max` reasoning effort. Chat replies are 1-5 sentences,
     # so the extra thinking is billed as output for no benefit. The optimizer does
