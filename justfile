@@ -50,19 +50,19 @@ test-cov:
 
 # Format code with ruff
 format:
-    ruff format src scripts tests
+    uv run ruff format src scripts tests
 
 # Lint code with ruff
 lint:
-    ruff check src scripts tests
+    uv run ruff check src scripts tests
 
 # Check formatting without rewriting files (CI runs this; `just format` mutates)
 format-check:
-    ruff format --check src scripts tests
+    uv run ruff format --check src scripts tests
 
 # Auto-fix linting issues
 lint-fix:
-    ruff check --fix src scripts tests
+    uv run ruff check --fix src scripts tests
 
 # Bandit security scan
 bandit:
