@@ -50,15 +50,19 @@ test-cov:
 
 # Format code with ruff
 format:
-    ruff format src scripts tests
+    uv run ruff format src scripts tests
 
 # Lint code with ruff
 lint:
-    ruff check src scripts tests
+    uv run ruff check src scripts tests
+
+# Check formatting without rewriting files (CI runs this; `just format` mutates)
+format-check:
+    uv run ruff format --check src scripts tests
 
 # Auto-fix linting issues
 lint-fix:
-    ruff check --fix src scripts tests
+    uv run ruff check --fix src scripts tests
 
 # Bandit security scan
 bandit:
@@ -175,6 +179,7 @@ help:
     @echo "Code Quality:"
     @echo "  just format       - Format code"
     @echo "  just lint         - Lint code"
+    @echo "  just format-check - Check formatting without rewriting"
     @echo "  just check        - Type check with ty"
     @echo "  just check-all    - Format, lint, and type check"
     @echo ""
@@ -191,12 +196,12 @@ help:
 
 # Run lint, type check, and unit tests (fast, no infra)
 ci:
-    parallel --jobs $(nproc) ::: "just lint" "just check" "just bandit"
+    parallel --jobs $(nproc) ::: "just lint" "just format-check" "just check" "just bandit"
     uv run pytest -m "not integration"
 
 # Run lint, type check, and all tests (with infra)
 ci-full:
-    parallel --jobs $(nproc) ::: "just lint" "just check" "just bandit"
+    parallel --jobs $(nproc) ::: "just lint" "just format-check" "just check" "just bandit"
     just test-all
 
 # Run only integration tests (requires test infra)
