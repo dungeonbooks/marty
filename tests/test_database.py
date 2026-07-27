@@ -5,10 +5,12 @@ Tests CRUD operations, async functionality, and error handling.
 All database tests use PostgreSQL integration testing to match production.
 """
 
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.crud import (
@@ -29,7 +31,9 @@ from src.database import (
     CustomerCreate,
     CustomerUpdate,
     InventoryCreate,
+    Message,
     MessageCreate,
+    cleanup_database,
 )
 
 # Use PostgreSQL integration test fixtures from conftest.py
@@ -651,6 +655,214 @@ class TestDatabaseIntegration:
         # Test deleting non-existent customer
         deleted = await CustomerCRUD.delete(db_session, "non-existent-id")
         assert deleted is False
+
+
+@pytest.mark.integration
+class TestCleanup:
+    """Test retention cleanup for conversations, messages, and rate limits."""
+
+    async def _make_conversation(
+        self,
+        db: AsyncSession,
+        customer: Customer,
+        age_days: int,
+        message_count: int,
+    ) -> Conversation:
+        """Create a conversation aged `age_days` with `message_count` messages."""
+        created_at = datetime.now(UTC) - timedelta(days=age_days)
+        conversation = Conversation(
+            customer_id=customer.id,
+            phone=customer.phone,
+            status="active",
+            created_at=created_at,
+        )
+        db.add(conversation)
+        await db.flush()
+
+        for index in range(message_count):
+            db.add(
+                Message(
+                    conversation_id=conversation.id,
+                    direction="inbound",
+                    content=f"message {index}",
+                    timestamp=created_at + timedelta(minutes=index),
+                )
+            )
+        await db.commit()
+        return conversation
+
+    async def _remaining_contents(
+        self, db: AsyncSession, conversation_id: str
+    ) -> list[str]:
+        result = await db.execute(
+            select(Message.content)
+            .where(Message.conversation_id == conversation_id)
+            .order_by(Message.timestamp)
+        )
+        return [row[0] for row in result.fetchall()]
+
+    @pytest.mark.asyncio
+    async def test_deletes_old_conversations_with_their_messages(
+        self, db_session: AsyncSession, sample_customer: Customer
+    ):
+        old = await self._make_conversation(
+            db_session, sample_customer, age_days=45, message_count=3
+        )
+
+        stats = await cleanup_database(db_session, conversation_days_old=30)
+
+        assert stats["conversations_deleted"] == 1
+        assert stats["messages_deleted"] == 3
+        assert await ConversationCRUD.get_by_id(db_session, old.id) is None
+        assert await self._remaining_contents(db_session, old.id) == []
+
+    @pytest.mark.asyncio
+    async def test_trims_active_conversations_to_recent_messages(
+        self, db_session: AsyncSession, sample_customer: Customer
+    ):
+        active = await self._make_conversation(
+            db_session, sample_customer, age_days=1, message_count=8
+        )
+
+        stats = await cleanup_database(
+            db_session, conversation_days_old=30, keep_recent_messages=3
+        )
+
+        assert stats["conversations_deleted"] == 0
+        assert stats["messages_deleted"] == 5
+        assert await self._remaining_contents(db_session, active.id) == [
+            "message 5",
+            "message 6",
+            "message 7",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_trims_each_conversation_independently(
+        self, db_session: AsyncSession, sample_customer: Customer
+    ):
+        """The window ranking must partition per conversation, not globally."""
+        first = await self._make_conversation(
+            db_session, sample_customer, age_days=1, message_count=4
+        )
+        second = await self._make_conversation(
+            db_session, sample_customer, age_days=2, message_count=4
+        )
+
+        stats = await cleanup_database(
+            db_session, conversation_days_old=30, keep_recent_messages=2
+        )
+
+        assert stats["messages_deleted"] == 4
+        assert len(await self._remaining_contents(db_session, first.id)) == 2
+        assert len(await self._remaining_contents(db_session, second.id)) == 2
+
+    @pytest.mark.asyncio
+    async def test_keeps_conversations_under_the_message_threshold(
+        self, db_session: AsyncSession, sample_customer: Customer
+    ):
+        active = await self._make_conversation(
+            db_session, sample_customer, age_days=1, message_count=2
+        )
+
+        stats = await cleanup_database(
+            db_session, conversation_days_old=30, keep_recent_messages=5
+        )
+
+        assert stats["messages_deleted"] == 0
+        assert len(await self._remaining_contents(db_session, active.id)) == 2
+
+    @pytest.mark.asyncio
+    async def test_keep_recent_messages_zero_leaves_active_messages_alone(
+        self, db_session: AsyncSession, sample_customer: Customer
+    ):
+        active = await self._make_conversation(
+            db_session, sample_customer, age_days=1, message_count=4
+        )
+
+        stats = await cleanup_database(
+            db_session, conversation_days_old=30, keep_recent_messages=0
+        )
+
+        assert stats["messages_deleted"] == 0
+        assert len(await self._remaining_contents(db_session, active.id)) == 4
+
+    @pytest.mark.asyncio
+    async def test_dry_run_reports_counts_without_deleting(
+        self, db_session: AsyncSession, sample_customer: Customer
+    ):
+        old = await self._make_conversation(
+            db_session, sample_customer, age_days=45, message_count=3
+        )
+        active = await self._make_conversation(
+            db_session, sample_customer, age_days=1, message_count=6
+        )
+        await RateLimitCRUD.create(db_session, "+1999999999", "sms", 0)
+
+        # The dry run's rollback expires these instances, so read the ids first.
+        old_id, active_id = old.id, active.id
+
+        stats = await cleanup_database(
+            db_session,
+            conversation_days_old=30,
+            keep_recent_messages=2,
+            dry_run=True,
+        )
+
+        assert stats["conversations_deleted"] == 1
+        assert stats["messages_deleted"] == 7  # 3 from old, 4 trimmed from active
+        assert stats["rate_limits_deleted"] == 1
+
+        # Nothing actually went away.
+        assert await ConversationCRUD.get_by_id(db_session, old_id) is not None
+        assert len(await self._remaining_contents(db_session, old_id)) == 3
+        assert len(await self._remaining_contents(db_session, active_id)) == 6
+
+    @pytest.mark.asyncio
+    async def test_dry_run_counts_match_the_real_run(
+        self, db_session: AsyncSession, sample_customer: Customer
+    ):
+        await self._make_conversation(
+            db_session, sample_customer, age_days=45, message_count=3
+        )
+        await self._make_conversation(
+            db_session, sample_customer, age_days=1, message_count=6
+        )
+
+        previewed = await cleanup_database(
+            db_session,
+            conversation_days_old=30,
+            keep_recent_messages=2,
+            dry_run=True,
+        )
+        applied = await cleanup_database(
+            db_session, conversation_days_old=30, keep_recent_messages=2
+        )
+
+        assert previewed == applied
+
+    @pytest.mark.asyncio
+    async def test_cleanup_is_idempotent(
+        self, db_session: AsyncSession, sample_customer: Customer
+    ):
+        await self._make_conversation(
+            db_session, sample_customer, age_days=45, message_count=3
+        )
+        await self._make_conversation(
+            db_session, sample_customer, age_days=1, message_count=6
+        )
+
+        await cleanup_database(
+            db_session, conversation_days_old=30, keep_recent_messages=2
+        )
+        second_pass = await cleanup_database(
+            db_session, conversation_days_old=30, keep_recent_messages=2
+        )
+
+        assert second_pass == {
+            "conversations_deleted": 0,
+            "messages_deleted": 0,
+            "rate_limits_deleted": 0,
+        }
 
 
 if __name__ == "__main__":
