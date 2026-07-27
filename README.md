@@ -334,8 +334,7 @@ Add token as `DISCORD_BOT_TOKEN`.
 - `DISCORD_BOT_TOKEN`: Discord bot token
 - `BOOKSHOP_AFFILIATE_ID`: Optional affiliate links
 - `REDIS_URL`: Redis connection string for rate limiting
-- `DEBUG`: true/false
-- `LOG_LEVEL`: INFO/DEBUG
+- `ENV`: `dev` enables the reloader and dev-only bot behavior
 
 ## Architecture
 
@@ -448,11 +447,9 @@ just ci-full
 
 ### Debug Mode
 
-```bash
-# Add to .env
-DEBUG=true
-LOG_LEVEL=DEBUG
-```
+Log levels are currently fixed in `src/main.py`: third-party loggers at
+`WARNING`, application loggers under `src` at `INFO`. There is no env var to
+raise verbosity.
 
 ## Contributing
 
