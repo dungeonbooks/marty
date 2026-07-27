@@ -1,4 +1,4 @@
-"""Tests for configuration, focused on Hardcover token expiry parsing."""
+"""Tests for configuration: LLM key resolution and Hardcover token expiry."""
 
 import base64
 import json
@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from src.config import Config
+from src.config import PLACEHOLDER_API_KEY, Config
 
 
 def _jwt(claims) -> str:
@@ -23,6 +23,19 @@ def cfg():
         pass
 
     return TestConfig
+
+
+class TestLlmApiKey:
+    def test_returns_the_neuralwatt_key(self, cfg):
+        cfg.NEURALWATT_API_KEY = "sk-real-key"
+
+        assert cfg.llm_api_key() == "sk-real-key"
+
+    def test_falls_back_to_the_placeholder(self, cfg):
+        """An unset key must not break import; the API rejects the placeholder."""
+        cfg.NEURALWATT_API_KEY = ""
+
+        assert cfg.llm_api_key() == PLACEHOLDER_API_KEY
 
 
 class TestHardcoverTokenExpiry:

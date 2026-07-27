@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 Comprehensive smoke test for Marty's critical integrations.
-Verifies Claude AI, Hardcover API, and database connectivity.
+Verifies the LLM, Hardcover API, and database connectivity.
 
-⚠️  WARNING: This test makes REAL API calls to Claude AI and Hardcover API
+⚠️  WARNING: This test makes REAL API calls to the LLM and Hardcover API
     which may incur costs. Use sparingly in development.
 """
 
@@ -48,7 +48,7 @@ class SmokeTestRunner:
 
     async def test_environment_variables(self) -> bool:
         """Test that required environment variables are set."""
-        required_vars = ["ANTHROPIC_API_KEY", "HARDCOVER_API_TOKEN", "DATABASE_URL"]
+        required_vars = ["NEURALWATT_API_KEY", "HARDCOVER_API_TOKEN", "DATABASE_URL"]
 
         missing_vars = []
         for var in required_vars:
@@ -64,12 +64,12 @@ class SmokeTestRunner:
         self._log_test("Environment Variables", True, "All required vars present")
         return True
 
-    async def test_claude_integration(self) -> bool:
-        """Test Claude AI integration."""
+    async def test_llm_integration(self) -> bool:
+        """Test LLM integration."""
         # Only run real API tests if explicitly enabled
         if not os.getenv("MARTY_ENABLE_REAL_API_TESTS"):
             self._log_test(
-                "Claude AI",
+                "LLM",
                 True,
                 "Skipped (use MARTY_ENABLE_REAL_API_TESTS=1 to test real API)",
             )
@@ -94,11 +94,11 @@ class SmokeTestRunner:
             if not response2:
                 raise SmokeTestError("No response with history")
 
-            self._log_test("Claude AI", True, f"Response: {response[:30]}...")
+            self._log_test("LLM", True, f"Response: {response[:30]}...")
             return True
 
         except Exception as e:
-            self._log_test("Claude AI", False, str(e))
+            self._log_test("LLM", False, str(e))
             return False
 
     async def test_hardcover_integration(self) -> bool:
@@ -220,7 +220,7 @@ class SmokeTestRunner:
 
         # Test individual components
         tests = [
-            self.test_claude_integration(),
+            self.test_llm_integration(),
             self.test_hardcover_integration(),
             self.test_database_connection(),
             self.test_complete_flow(),

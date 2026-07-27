@@ -50,7 +50,7 @@ class ChatConfig:
     """Configuration for the chat interface."""
 
     max_history_length: int = 20
-    api_key_env_var: str = "ANTHROPIC_API_KEY"
+    api_key_env_var: str = "NEURALWATT_API_KEY"
     default_customer_name: str = "Terminal User"
     default_phone: str = "+1555000000"
     default_customer_id: str = "test_user"
@@ -139,7 +139,7 @@ class MartyChat:
         if not os.getenv(self.config.api_key_env_var):
             raise APIKeyError(
                 f"❌ {self.config.api_key_env_var} not found in environment\n"
-                f"Please set your Claude API key in .env file"
+                f"Please set your Neuralwatt API key in .env file"
             )
 
     def _add_to_history(
