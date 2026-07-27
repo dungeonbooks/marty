@@ -799,18 +799,20 @@ async def cleanup_old_conversations(
 
         cutoff_date = datetime.now(UTC) - timedelta(days=days_old)
 
-        old_conversation_ids = select(Conversation.id).where(
+        old_conversation_ids_query = select(Conversation.id).where(
             Conversation.created_at < cutoff_date
         )
 
         # Messages go first so the conversation delete doesn't hit the FK.
         result = await db.execute(
-            delete(Message).where(Message.conversation_id.in_(old_conversation_ids))
+            delete(Message).where(
+                Message.conversation_id.in_(old_conversation_ids_query)
+            )
         )
         messages_deleted = result.rowcount
 
         result = await db.execute(
-            delete(Conversation).where(Conversation.id.in_(old_conversation_ids))
+            delete(Conversation).where(Conversation.id.in_(old_conversation_ids_query))
         )
         conversations_deleted = result.rowcount
 
