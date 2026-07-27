@@ -1,11 +1,21 @@
-"""Fetch and parse markdown docs from dungeonbooks/policies.
+"""Fetch and parse markdown docs from the published policies site.
 
-Uses raw.githubusercontent.com directly. No GitHub API auth, no PAT, read-only.
+Reads https://docs.dungeonbooks.com, which Quartz builds from the policies
+vault and Cloudflare Pages serves. The MarkdownSource emitter publishes each
+page's source markdown beside its rendered HTML, so this is the same text the
+author wrote, agent-guidance HTML comments included.
+
+Reading the site rather than raw.githubusercontent.com is what lets the vault
+repo be private: the site is public because Pages serves it, not because GitHub
+does. It also means a page that failed the build is simply absent here, rather
+than being served from a branch nobody has published yet.
+
+No auth, no PAT, read-only.
 In-memory TTL cache with single-lock refill and stale-on-network-failure
 fallback. The publish gate (`publish: true` frontmatter) is enforced here as a
-safety belt — the system-prompt index should already filter drafts out so
-Claude never asks for them, but unpublished slugs raise rather than return
-content if asked for directly.
+safety belt. The site build already drops anything without it, so an
+unpublished slug 404s before this check can run, but the check stays: it costs
+nothing and it is the last line if a build ever ships something it should not.
 """
 
 import asyncio
@@ -19,7 +29,7 @@ import yaml
 
 logger = structlog.get_logger(__name__)
 
-DOCS_BASE_URL = "https://raw.githubusercontent.com/dungeonbooks/policies/main"
+DOCS_BASE_URL = "https://docs.dungeonbooks.com"
 CACHE_TTL_SECONDS = 15 * 60
 HTTP_TIMEOUT_SECONDS = 5
 
