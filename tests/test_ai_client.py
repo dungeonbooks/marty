@@ -1,9 +1,8 @@
 """
-Tests for AI client and Claude integration.
+Tests for AI client and LLM integration.
 Tests prompt loading, response generation, error handling, and mocking.
 """
 
-import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -72,7 +71,7 @@ class TestConversationMessageValidation:
 
 
 class TestGenerateAIResponse:
-    """Test AI response generation with mocked Claude API."""
+    """Test AI response generation with a mocked LLM API."""
 
     @pytest.mark.asyncio
     async def test_generate_ai_response_success(self, mock_llm_api, llm_response):
@@ -363,28 +362,6 @@ class TestGenerateAIResponse:
         assert "Current date: 2024-01-15" in user_turn
         assert "Day of week: Monday" in user_turn
         assert "Customer name: John" in user_turn
-
-
-class TestEnvironmentIntegration:
-    """Test environment integration and configuration."""
-
-    def test_anthropic_api_key_loading(self):
-        """Test that API key is loaded from environment."""
-        # Test with environment variable
-        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
-            # Import client after setting env var
-            from src.ai_client import client
-
-            assert hasattr(client, "api_key")
-
-    def test_missing_api_key_handling(self):
-        """Test behavior when API key is missing."""
-        with patch.dict(os.environ, {}, clear=True):
-            # Should not raise an error during import
-            from src.ai_client import client
-
-            # Client should be created but with empty API key
-            assert hasattr(client, "api_key")
 
 
 class TestSystemPromptContent:
