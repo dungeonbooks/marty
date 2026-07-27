@@ -48,7 +48,6 @@ async def main():
 
     if args.dry_run:
         print("🚫 DRY RUN MODE - No data will be deleted")
-        return
 
     try:
         async with get_db_session() as db:
@@ -56,12 +55,20 @@ async def main():
                 db,
                 conversation_days_old=args.days_old,
                 keep_recent_messages=args.keep_messages,
+                dry_run=args.dry_run,
             )
 
-            print("\n✅ Cleanup completed successfully!")
-            print(f"🗑️  Deleted {stats['conversations_deleted']} conversations")
-            print(f"💬 Deleted {stats['messages_deleted']} messages")
-            print(f"⏱️  Deleted {stats['rate_limits_deleted']} expired rate limits")
+            verb = "Would delete" if args.dry_run else "Deleted"
+            headline = (
+                "\n✅ Dry run completed - nothing was deleted"
+                if args.dry_run
+                else "\n✅ Cleanup completed successfully!"
+            )
+
+            print(headline)
+            print(f"🗑️  {verb} {stats['conversations_deleted']} conversations")
+            print(f"💬 {verb} {stats['messages_deleted']} messages")
+            print(f"⏱️  {verb} {stats['rate_limits_deleted']} expired rate limits")
 
     except Exception as e:
         print(f"\n❌ Cleanup failed: {e}")

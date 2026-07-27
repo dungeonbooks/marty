@@ -775,7 +775,10 @@ async def search_books(db: AsyncSession, query: str, limit: int = 10) -> list[Bo
 
 # Database Cleanup Functions
 async def cleanup_old_conversations(
-    db: AsyncSession, days_old: int = 30, keep_recent_messages: int = 5
+    db: AsyncSession,
+    days_old: int = 30,
+    keep_recent_messages: int = 5,
+    dry_run: bool = False,
 ) -> tuple[int, int]:
     """
     Clean up old conversations and messages to prevent database clutter.
@@ -784,6 +787,7 @@ async def cleanup_old_conversations(
         db: Database session
         days_old: Delete conversations older than this many days
         keep_recent_messages: Keep this many recent messages per conversation
+        dry_run: Run the deletes to get exact counts, then roll back
 
     Returns:
         Tuple of (conversations_deleted, messages_deleted)
@@ -795,64 +799,60 @@ async def cleanup_old_conversations(
 
         cutoff_date = datetime.now(UTC) - timedelta(days=days_old)
 
-        # Find old conversations
-        old_conversations_query = select(Conversation.id).where(
+        old_conversation_ids = select(Conversation.id).where(
             Conversation.created_at < cutoff_date
         )
-        old_conversations_result = await db.execute(old_conversations_query)
-        old_conversation_ids = [row[0] for row in old_conversations_result.fetchall()]
 
-        messages_deleted = 0
-        conversations_deleted = 0
+        # Messages go first so the conversation delete doesn't hit the FK.
+        result = await db.execute(
+            delete(Message).where(Message.conversation_id.in_(old_conversation_ids))
+        )
+        messages_deleted = result.rowcount
 
-        if old_conversation_ids:
-            # For old conversations, delete all messages first, then delete conversations
-            # This ensures we don't violate foreign key constraints
+        result = await db.execute(
+            delete(Conversation).where(Conversation.id.in_(old_conversation_ids))
+        )
+        conversations_deleted = result.rowcount
 
-            # Delete ALL messages from old conversations first
-            delete_messages_query = delete(Message).where(
-                Message.conversation_id.in_(old_conversation_ids)
-            )
-            result = await db.execute(delete_messages_query)
-            messages_deleted = result.rowcount
-
-            # Now we can safely delete the conversations
-            delete_conversations_query = delete(Conversation).where(
-                Conversation.id.in_(old_conversation_ids)
-            )
-            result = await db.execute(delete_conversations_query)
-            conversations_deleted = result.rowcount
-
-        # Separately handle keeping recent messages for active conversations
-        # This deletes old messages from conversations we're NOT deleting
+        # Conversations we're keeping still get trimmed to their N newest
+        # messages. Ranking in one window query avoids a round trip per
+        # conversation; id breaks ties so identical timestamps are stable.
         if keep_recent_messages > 0:
-            active_conversations_query = select(Conversation.id).where(
-                Conversation.created_at >= cutoff_date
-            )
-            active_conversations_result = await db.execute(active_conversations_query)
-            active_conversation_ids = [
-                row[0] for row in active_conversations_result.fetchall()
-            ]
-
-            for conv_id in active_conversation_ids:
-                # Get messages to keep (most recent ones)
-                recent_messages_query = (
-                    select(Message.id)
-                    .where(Message.conversation_id == conv_id)
-                    .order_by(Message.timestamp.desc())
-                    .limit(keep_recent_messages)
-                )
-                recent_result = await db.execute(recent_messages_query)
-                keep_message_ids = [row[0] for row in recent_result.fetchall()]
-
-                # Delete old messages from active conversations (not in keep list)
-                if keep_message_ids:
-                    delete_old_messages_query = delete(Message).where(
-                        Message.conversation_id == conv_id,
-                        Message.id.notin_(keep_message_ids),
+            ranked_messages = (
+                select(
+                    Message.id.label("id"),
+                    func.row_number()
+                    .over(
+                        partition_by=Message.conversation_id,
+                        order_by=(Message.timestamp.desc(), Message.id.desc()),
                     )
-                    result = await db.execute(delete_old_messages_query)
-                    messages_deleted += result.rowcount
+                    .label("rank"),
+                )
+                .where(
+                    Message.conversation_id.in_(
+                        select(Conversation.id).where(
+                            Conversation.created_at >= cutoff_date
+                        )
+                    )
+                )
+                .subquery()
+            )
+            stale_message_ids = select(ranked_messages.c.id).where(
+                ranked_messages.c.rank > keep_recent_messages
+            )
+            result = await db.execute(
+                delete(Message).where(Message.id.in_(stale_message_ids))
+            )
+            messages_deleted += result.rowcount
+
+        if dry_run:
+            await db.rollback()
+            logger.info(
+                f"Cleanup dry run: would delete {conversations_deleted} "
+                f"conversations and {messages_deleted} messages "
+                f"(older than {days_old} days)"
+            )
+            return conversations_deleted, messages_deleted
 
         await db.commit()
 
@@ -869,7 +869,7 @@ async def cleanup_old_conversations(
         raise e
 
 
-async def cleanup_expired_rate_limits(db: AsyncSession) -> int:
+async def cleanup_expired_rate_limits(db: AsyncSession, dry_run: bool = False) -> int:
     """Clean up expired rate limit records."""
     try:
         from sqlalchemy import delete
@@ -878,6 +878,13 @@ async def cleanup_expired_rate_limits(db: AsyncSession) -> int:
         delete_query = delete(RateLimit).where(RateLimit.expires_at < datetime.now(UTC))
         result = await db.execute(delete_query)
         deleted_count = result.rowcount
+
+        if dry_run:
+            await db.rollback()
+            logger.info(
+                f"Rate limit dry run: would delete {deleted_count} expired records"
+            )
+            return deleted_count
 
         await db.commit()
 
@@ -891,7 +898,10 @@ async def cleanup_expired_rate_limits(db: AsyncSession) -> int:
 
 
 async def cleanup_database(
-    db: AsyncSession, conversation_days_old: int = 30, keep_recent_messages: int = 5
+    db: AsyncSession,
+    conversation_days_old: int = 30,
+    keep_recent_messages: int = 5,
+    dry_run: bool = False,
 ) -> dict[str, int]:
     """
     Perform comprehensive database cleanup.
@@ -900,6 +910,10 @@ async def cleanup_database(
         db: Database session
         conversation_days_old: Delete conversations older than this many days
         keep_recent_messages: Keep this many recent messages per conversation
+        dry_run: Report what would be deleted without persisting anything.
+            Counts come from real deletes that are then rolled back, so they
+            match an immediate real run exactly. The rollback expires any ORM
+            instances already loaded in this session.
 
     Returns:
         Dict with cleanup statistics
@@ -907,11 +921,11 @@ async def cleanup_database(
     try:
         # Cleanup conversations and messages
         conversations_deleted, messages_deleted = await cleanup_old_conversations(
-            db, conversation_days_old, keep_recent_messages
+            db, conversation_days_old, keep_recent_messages, dry_run=dry_run
         )
 
         # Cleanup expired rate limits
-        rate_limits_deleted = await cleanup_expired_rate_limits(db)
+        rate_limits_deleted = await cleanup_expired_rate_limits(db, dry_run=dry_run)
 
         stats = {
             "conversations_deleted": conversations_deleted,
