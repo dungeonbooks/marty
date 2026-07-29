@@ -194,13 +194,13 @@ def test_environment():
 
 @pytest.fixture(autouse=True)
 def mock_docs_index():
-    """Stub the docs index fetch so unit tests don't hit raw.githubusercontent.com.
+    """Stub the docs index fetches so unit tests don't hit the network.
 
-    The ai_client appends fetch_index() output to the system prompt on every
-    request. Without this stub, tests either go to the network or each test
-    has to remember to patch it.
+    The ai_client appends fetch_index() and fetch_page_index() output to the
+    system prompt on every request. Both are stubbed here: without this, tests
+    either go to the network or each test has to remember to patch them.
     """
-    from src.tools.docs.fetcher import DocPayload
+    from src.tools.docs.fetcher import INDEX_FILE, DocPayload
 
     stub = DocPayload(
         slug="index",
@@ -209,7 +209,20 @@ def mock_docs_index():
         agent_directives={},
         fetched_at=0.0,
     )
-    with patch("src.tools.docs.fetcher.fetch_index", AsyncMock(return_value=stub)):
+    page_index_stub = DocPayload(
+        slug=INDEX_FILE,
+        frontmatter={},
+        body="",
+        agent_directives={},
+        fetched_at=0.0,
+    )
+    with (
+        patch("src.tools.docs.fetcher.fetch_index", AsyncMock(return_value=stub)),
+        patch(
+            "src.tools.docs.fetcher.fetch_page_index",
+            AsyncMock(return_value=page_index_stub),
+        ),
+    ):
         yield
 
 

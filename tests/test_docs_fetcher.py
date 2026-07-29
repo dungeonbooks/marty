@@ -15,6 +15,7 @@ import yaml
 from src.tools.docs import fetcher
 from src.tools.docs.fetcher import (
     CACHE_TTL_SECONDS,
+    INDEX_FILE,
     DocNotFoundError,
     DocNotPublishedError,
     DocPayload,
@@ -22,7 +23,10 @@ from src.tools.docs.fetcher import (
     _parse,
     clear_cache,
     fetch_doc,
+    fetch_page_index,
     format_index_for_prompt,
+    format_page_index,
+    parse_page_index,
 )
 
 
@@ -413,38 +417,164 @@ class TestStampedePrevention:
         assert {r.body for r in results} == {"body-1"}
 
 
+LLMS_TXT = """# Dungeon Books Docs
+
+> Operational documentation for Dungeon Books.
+
+## Pages
+
+- [Store](https://docs.dungeonbooks.com/store.md): Hours, location, and contact.
+- [Events](https://docs.dungeonbooks.com/events.md)
+- [Return policy](https://docs.dungeonbooks.com/policies/return-policy.md): Returns and exchanges.
+"""
+
+
+def _page_index(body: str) -> DocPayload:
+    return DocPayload(
+        slug=INDEX_FILE,
+        frontmatter={},
+        body=body,
+        agent_directives={},
+        fetched_at=time.time(),
+    )
+
+
+class TestParsePageIndex:
+    def test_reads_slug_title_and_description(self):
+        entries = parse_page_index(LLMS_TXT)
+        assert [e.slug for e in entries] == [
+            "store",
+            "events",
+            "policies/return-policy",
+        ]
+        assert entries[0].title == "Store"
+        assert entries[0].description == "Hours, location, and contact."
+
+    def test_description_is_none_when_absent(self):
+        assert parse_page_index(LLMS_TXT)[1].description is None
+
+    def test_ignores_the_heading_and_blurb(self):
+        # The blurb starts with "> " and the heading with "# ", so neither can
+        # match; this pins that they stay out rather than arriving as entries.
+        assert len(parse_page_index(LLMS_TXT)) == 3
+
+    def test_nested_slug_survives(self):
+        entries = parse_page_index(LLMS_TXT)
+        assert entries[2].slug == "policies/return-policy"
+
+    # A slug is what fetch_doc builds its own URL from, so a link off-site would
+    # become a request to the wrong page under our own host.
+    def test_drops_links_to_another_host(self):
+        raw = "- [Elsewhere](https://example.com/store.md): nope."
+        assert parse_page_index(raw) == []
+
+    def test_drops_links_that_are_not_markdown(self):
+        raw = "- [Rendered](https://docs.dungeonbooks.com/store): nope."
+        assert parse_page_index(raw) == []
+
+    def test_skips_unparseable_lines(self):
+        raw = "- not a link at all\n- [Store](https://docs.dungeonbooks.com/store.md)"
+        entries = parse_page_index(raw)
+        assert [e.slug for e in entries] == ["store"]
+
+    def test_empty_file_yields_nothing(self):
+        assert parse_page_index("") == []
+
+
+class TestFormatPageIndex:
+    def test_renders_slug_to_summary(self):
+        out = format_page_index(_page_index(LLMS_TXT))
+        assert out.startswith("page_index:\n")
+        assert "  store: Hours, location, and contact." in out
+        assert "  policies/return-policy: Returns and exchanges." in out
+
+    def test_undescribed_page_is_listed_bare(self):
+        assert "  events\n" in format_page_index(_page_index(LLMS_TXT)) + "\n"
+
+    def test_empty_index_renders_nothing(self):
+        assert format_page_index(_page_index("")) == ""
+
+
+class TestFetchPageIndex:
+    @pytest.mark.asyncio
+    async def test_caches_and_skips_the_publish_gate(self, monkeypatch):
+        calls = 0
+
+        async def fake_remote():
+            nonlocal calls
+            calls += 1
+            return _page_index(LLMS_TXT)
+
+        monkeypatch.setattr(fetcher, "_fetch_page_index_remote", fake_remote)
+
+        first = await fetch_page_index()
+        second = await fetch_page_index()
+
+        # llms.txt has no frontmatter, so a publish gate would reject it outright.
+        assert first.frontmatter == {}
+        assert calls == 1
+        assert second is first
+
+    @pytest.mark.asyncio
+    async def test_force_refetches(self, monkeypatch):
+        calls = 0
+
+        async def fake_remote():
+            nonlocal calls
+            calls += 1
+            return _page_index(LLMS_TXT)
+
+        monkeypatch.setattr(fetcher, "_fetch_page_index_remote", fake_remote)
+        await fetch_page_index()
+        await fetch_page_index(force=True)
+        assert calls == 2
+
+
 class TestFormatIndexForPrompt:
-    def test_combines_body_and_index(self):
+    def test_combines_body_and_page_index(self):
         payload = DocPayload(
             slug="index",
             frontmatter={"publish": True},
             body="body content",
-            agent_directives={"agent_index": {"store": "hours and location"}},
+            agent_directives={},
             fetched_at=time.time(),
         )
-        out = format_index_for_prompt(payload)
+        out = format_index_for_prompt(payload, _page_index(LLMS_TXT))
         assert "body content" in out
-        assert "agent_index" in out
-        assert "store: hours and location" in out
+        assert "page_index" in out
+        assert "store: Hours, location, and contact." in out
+
+    def test_body_alone_when_the_page_index_is_missing(self):
+        payload = DocPayload(
+            slug="index",
+            frontmatter={"publish": True},
+            body="body content",
+            agent_directives={},
+            fetched_at=time.time(),
+        )
+        assert format_index_for_prompt(payload) == "body content"
 
     def test_skips_empty_parts(self):
         payload = DocPayload(
             slug="index",
             frontmatter={"publish": True},
             body="",
-            agent_directives={"agent_index": ["only guidance"]},
+            agent_directives={},
             fetched_at=time.time(),
         )
-        out = format_index_for_prompt(payload)
-        assert out == "agent_index:\n  only guidance"
+        out = format_index_for_prompt(payload, _page_index(LLMS_TXT))
+        assert out.startswith("page_index:")
 
     def test_index_todo_stays_out_of_the_system_prompt(self):
         payload = DocPayload(
             slug="index",
             frontmatter={"publish": True},
             body="body content",
-            agent_directives={"agent_index": {"store": "hours"}},
+            agent_directives={"todo": ["internal note"]},
             fetched_at=time.time(),
         )
-        # `todo` was filtered at parse time, so it cannot reach the prompt here.
-        assert "todo" not in format_index_for_prompt(payload)
+        # `todo` is filtered at parse time and the index no longer reads comments
+        # at all, so there are two reasons it cannot reach the prompt.
+        assert "internal note" not in format_index_for_prompt(
+            payload, _page_index(LLMS_TXT)
+        )
