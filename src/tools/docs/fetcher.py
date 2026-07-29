@@ -111,9 +111,9 @@ class DocPayload:
     slug: str
     frontmatter: dict
     body: str
-    # Agent-facing keys only, addressable by name. Different consumers want
-    # different keys: get_doc reads `agent_guidance`, the index reads
-    # `agent_index`. Human-only keys (todo, status) never appear here.
+    # Agent-facing keys only, addressable by name. `get_doc` reads
+    # `agent_guidance`; the prefix admits others without a code change.
+    # Human-only keys (todo, status) never appear here.
     agent_directives: dict
     fetched_at: float
 
@@ -190,8 +190,8 @@ def _parse_directives(slug: str, comments: list[str]) -> dict:
     """Extract agent-facing keys from a doc's HTML comments.
 
     Comments are the agent-only layer: Quartz strips them, so authors use them
-    for both bot directives (`agent_guidance`, `agent_index`) and human notes
-    (`todo`, `status`). Only `agent_`-prefixed keys are returned.
+    for both bot directives (`agent_guidance`) and human notes (`todo`,
+    `status`). Only `agent_`-prefixed keys are returned.
 
     The prefix is the contract rather than a fixed list of key names, so a new
     directive works without a code change and a new human-only key stays private
