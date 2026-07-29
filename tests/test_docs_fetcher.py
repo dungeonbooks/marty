@@ -472,6 +472,26 @@ class TestParsePageIndex:
         raw = "- [Rendered](https://docs.dungeonbooks.com/store): nope."
         assert parse_page_index(raw) == []
 
+    # Scheme-relative links are off-site but carry no scheme, so without an
+    # explicit check they arrive as the in-site slug "example.com/store".
+    def test_drops_scheme_relative_links(self):
+        raw = "- [Elsewhere](//example.com/store.md): nope."
+        assert parse_page_index(raw) == []
+
+    # A traversal segment would be interpolated into the fetch URL as-is.
+    @pytest.mark.parametrize(
+        "target",
+        ["../store.md", "policies/../../store.md", "./store.md", "policies//store.md"],
+    )
+    def test_drops_traversal_and_empty_segments(self, target):
+        assert parse_page_index(f"- [Store]({target}): nope.") == []
+
+    def test_keeps_a_plain_relative_link(self):
+        # The emitter falls back to relative links when baseUrl is unset, so
+        # these stay valid.
+        entries = parse_page_index("- [Store](store.md): Hours.")
+        assert [e.slug for e in entries] == ["store"]
+
     def test_skips_unparseable_lines(self):
         raw = "- not a link at all\n- [Store](https://docs.dungeonbooks.com/store.md)"
         entries = parse_page_index(raw)
