@@ -33,6 +33,16 @@ DOCS_BASE_URL = "https://docs.dungeonbooks.com"
 CACHE_TTL_SECONDS = 15 * 60
 HTTP_TIMEOUT_SECONDS = 5
 
+# The site's own index of published pages, one line per page with a one-line
+# summary, written by the MarkdownSource emitter from each page's `description`
+# frontmatter. This replaced the hand-kept `agent_index` comment in index.md:
+# the summary now lives on the page it describes instead of in a second list
+# that had to be updated alongside it.
+#
+# Safe as a cache key next to page slugs. A slug is a path with the extension
+# dropped, so nothing else in the cache can be called "llms.txt".
+INDEX_FILE = "llms.txt"
+
 # When we serve a stale entry because the upstream is failing, treat that
 # entry as fresh for this many seconds. Prevents concurrent and immediately-
 # subsequent callers from each retrying against a broken upstream — they all
@@ -50,6 +60,13 @@ _TRANSIENT_FETCH_ERRORS: tuple[type[Exception], ...] = (
 
 _FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n?(.*)", re.DOTALL)
 _HTML_COMMENT_RE = re.compile(r"<!--(.*?)-->", re.DOTALL)
+
+# One index entry: `- [Store](https://docs.dungeonbooks.com/store.md): Hours...`
+# The description is optional because a page without one still belongs in the
+# list; it just arrives unsummarised.
+_INDEX_ENTRY_RE = re.compile(
+    r"^-\s+\[(?P<title>[^\]]*)\]\((?P<url>[^)\s]+)\)(?:\s*:\s*(?P<description>.*))?$"
+)
 
 
 def _as_lines(value) -> list[str]:
@@ -94,9 +111,9 @@ class DocPayload:
     slug: str
     frontmatter: dict
     body: str
-    # Agent-facing keys only, addressable by name. Different consumers want
-    # different keys: get_doc reads `agent_guidance`, the index reads
-    # `agent_index`. Human-only keys (todo, status) never appear here.
+    # Agent-facing keys only, addressable by name. `get_doc` reads
+    # `agent_guidance`; the prefix admits others without a code change.
+    # Human-only keys (todo, status) never appear here.
     agent_directives: dict
     fetched_at: float
 
@@ -173,8 +190,8 @@ def _parse_directives(slug: str, comments: list[str]) -> dict:
     """Extract agent-facing keys from a doc's HTML comments.
 
     Comments are the agent-only layer: Quartz strips them, so authors use them
-    for both bot directives (`agent_guidance`, `agent_index`) and human notes
-    (`todo`, `status`). Only `agent_`-prefixed keys are returned.
+    for both bot directives (`agent_guidance`) and human notes (`todo`,
+    `status`). Only `agent_`-prefixed keys are returned.
 
     The prefix is the contract rather than a fixed list of key names, so a new
     directive works without a code change and a new human-only key stays private
@@ -258,8 +275,14 @@ async def _fetch_remote(slug: str) -> DocPayload:
     return _parse(slug, raw)
 
 
-async def fetch_doc(slug: str, *, force: bool = False) -> DocPayload:
-    """Fetch a published doc by slug.
+async def _fetch_cached(
+    key: str,
+    fetch_remote,
+    validate=None,
+    *,
+    force: bool = False,
+) -> DocPayload:
+    """Fetch under the cache, with single-flight refill and stale fallback.
 
     Caching:
       - Fresh hit: return immediately, no network.
@@ -272,42 +295,56 @@ async def fetch_doc(slug: str, *, force: bool = False) -> DocPayload:
       - Parse / content errors propagate. A bad docs commit surfaces; we
         do not silently mask it with the previous version.
 
-    Raises:
-      - DocNotFoundError on 404 (file is gone, no point serving stale).
-      - DocNotPublishedError if the file exists but lacks `publish: true`.
+    `validate` runs before the result is cached, so a payload it rejects is
+    refetched next time rather than being served from cache for a full TTL.
     """
     if not force:
-        cached = _cache.get_fresh(slug)
+        cached = _cache.get_fresh(key)
         if cached is not None:
             return cached
 
     async with _cache.refill_lock():
         if not force:
-            cached = _cache.get_fresh(slug)
+            cached = _cache.get_fresh(key)
             if cached is not None:
                 return cached
 
         try:
-            payload = await _fetch_remote(slug)
+            payload = await fetch_remote()
         except DocNotFoundError:
             raise
         except _TRANSIENT_FETCH_ERRORS as e:
-            stale = _cache.get_stale(slug)
+            stale = _cache.get_stale(key)
             if stale is not None:
                 logger.warning(
-                    f"docs fetch failed for {slug}: {e}; serving stale entry "
+                    f"docs fetch failed for {key}: {e}; serving stale entry "
                     f"({int(time.time() - stale.fetched_at)}s old, "
                     f"grace {STALE_GRACE_SECONDS}s)"
                 )
-                _cache.touch(slug, STALE_GRACE_SECONDS)
+                _cache.touch(key, STALE_GRACE_SECONDS)
                 return stale
             raise
 
+        if validate is not None:
+            validate(payload)
+
+        _cache.set(key, payload)
+        return payload
+
+
+async def fetch_doc(slug: str, *, force: bool = False) -> DocPayload:
+    """Fetch a published doc by slug.
+
+    Raises:
+      - DocNotFoundError on 404 (file is gone, no point serving stale).
+      - DocNotPublishedError if the file exists but lacks `publish: true`.
+    """
+
+    def gate(payload: DocPayload) -> None:
         if payload.frontmatter.get("publish") is not True:
             raise DocNotPublishedError(slug)
 
-        _cache.set(slug, payload)
-        return payload
+    return await _fetch_cached(slug, lambda: _fetch_remote(slug), gate, force=force)
 
 
 async def fetch_index() -> DocPayload:
@@ -315,21 +352,154 @@ async def fetch_index() -> DocPayload:
     return await fetch_doc("index")
 
 
-def format_index_for_prompt(payload: DocPayload) -> str:
-    """Render an index payload into a flat string for system-prompt injection.
+async def _fetch_page_index_remote() -> DocPayload:
+    """Fetch llms.txt. Raises DocNotFoundError on 404."""
+    url = f"{DOCS_BASE_URL}/{INDEX_FILE}"
+    timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_SECONDS)
 
-    Includes the customer-facing body and the `agent_index` directive. The body
-    gives the slug list with one-line summaries; `agent_index` gives the
-    canonical slug→summary mapping.
+    async with (
+        aiohttp.ClientSession() as session,
+        session.get(url, timeout=timeout) as resp,
+    ):
+        if resp.status == 404:
+            raise DocNotFoundError(INDEX_FILE)
+        resp.raise_for_status()
+        raw = await resp.text()
 
-    Reads `agent_index` by name rather than dumping every comment, so a `todo`
-    or `status` block in index.md stays out of the system prompt.
+    # llms.txt is generated, not authored: no frontmatter to parse and no
+    # comments to filter. It rides in a DocPayload only to reuse the cache.
+    return DocPayload(
+        slug=INDEX_FILE,
+        frontmatter={},
+        body=raw,
+        agent_directives={},
+        fetched_at=time.time(),
+    )
+
+
+async def fetch_page_index(*, force: bool = False) -> DocPayload:
+    """Fetch llms.txt, the site's index of published pages.
+
+    No publish gate. The file is emitted by the build from pages that already
+    passed it, so there is nothing here to re-check, and llms.txt has no
+    frontmatter to check it against.
+    """
+    return await _fetch_cached(INDEX_FILE, _fetch_page_index_remote, force=force)
+
+
+@dataclass
+class IndexEntry:
+    slug: str
+    title: str
+    description: str | None
+
+
+def parse_page_index(raw: str) -> list[IndexEntry]:
+    """Parse llms.txt into entries.
+
+    Only list lines are read. The heading and the site blurb above them are
+    prose for a human or a crawler landing on the file, and re-injecting them
+    would repeat what index.md already says in the prompt.
+
+    A line that does not match is skipped rather than guessed at. The file is
+    generated, so a non-matching line means the format changed, and inventing a
+    slug from it would put a page in the prompt that cannot be fetched.
+    """
+    entries: list[IndexEntry] = []
+    for line in raw.splitlines():
+        match = _INDEX_ENTRY_RE.match(line.strip())
+        if match is None:
+            continue
+
+        slug = _slug_from_url(match.group("url"))
+        if not slug:
+            continue
+
+        description = (match.group("description") or "").strip()
+        entries.append(
+            IndexEntry(
+                slug=slug,
+                title=match.group("title").strip(),
+                description=description or None,
+            )
+        )
+    return entries
+
+
+def _slug_from_url(url: str) -> str:
+    """Recover a fetchable slug from an index link.
+
+    Links are absolute, so the site prefix comes off. A link to some other host
+    is dropped: `fetch_doc` builds its own URL from the slug, so keeping it
+    would produce a slug that resolves to the wrong page or to nothing.
+
+    Everything this cannot vouch for is dropped rather than salvaged. The file is
+    generated by our own build, so none of these shapes should appear; if one
+    does, the format changed and guessing at it would send a request somewhere
+    nobody asked for.
+    """
+    # Scheme-relative, e.g. //example.com/store.md. Off-site, but it does not
+    # start with a scheme, so without this it would sail past the host check and
+    # come back as the in-site slug "example.com/store".
+    if url.startswith("//"):
+        return ""
+
+    if url.startswith(("http://", "https://")):
+        for prefix in (
+            f"{DOCS_BASE_URL}/",
+            f"{DOCS_BASE_URL.replace('https://', 'http://')}/",
+        ):
+            if url.startswith(prefix):
+                url = url[len(prefix) :]
+                break
+        else:
+            return ""
+
+    if not url.endswith(".md"):
+        return ""
+
+    slug = url[: -len(".md")].strip("/")
+
+    # A "." or ".." segment would be interpolated straight into the fetch URL,
+    # producing requests like docs.dungeonbooks.com/../x.md. An empty segment
+    # means a doubled slash. Neither is a slug this site emits.
+    if not slug or any(part in ("", ".", "..") for part in slug.split("/")):
+        return ""
+    return slug
+
+
+def format_page_index(payload: DocPayload) -> str:
+    """Render llms.txt into the slug→summary block for the system prompt."""
+    entries = parse_page_index(payload.body)
+    if not entries:
+        return ""
+
+    lines = [
+        f"  {e.slug}: {e.description}" if e.description else f"  {e.slug}"
+        for e in entries
+    ]
+    return "page_index:\n" + "\n".join(lines)
+
+
+def format_index_for_prompt(
+    payload: DocPayload, page_index: DocPayload | None = None
+) -> str:
+    """Render the docs index into a flat string for system-prompt injection.
+
+    Two parts: index.md's customer-facing body, which says what the docs are and
+    links the topics, and the slug→summary list from llms.txt, which is what
+    Marty routes on when picking a page to fetch.
+
+    The list used to come from an `agent_index` comment in index.md, maintained
+    by hand beside the same summaries in each page's frontmatter. It is read
+    from llms.txt now so there is one copy of a page's summary, on the page.
+    `page_index` is optional so a failed index fetch degrades to the body alone
+    rather than dropping the whole block.
     """
     parts = [payload.body.strip()]
 
-    index = _as_lines(payload.agent_directives.get("agent_index"))
-    if index:
-        parts.append("agent_index:\n" + "\n".join(f"  {line}" for line in index))
+    if page_index is not None:
+        parts.append(format_page_index(page_index))
 
     return "\n\n".join(p for p in parts if p)
 

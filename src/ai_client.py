@@ -143,10 +143,24 @@ def _tools_to_withhold(conversation_history: list[ConversationMessage]) -> set[s
 
 async def _fetch_docs_index() -> str:
     try:
-        from src.tools.docs.fetcher import fetch_index, format_index_for_prompt
+        from src.tools.docs.fetcher import (
+            fetch_index,
+            fetch_page_index,
+            format_index_for_prompt,
+        )
 
         payload = await fetch_index()
-        return format_index_for_prompt(payload)
+
+        # The page list is the useful half but the recoverable one: without it
+        # Marty still has index.md's own topic list to route on, so a failed
+        # llms.txt fetch degrades the prompt instead of emptying it.
+        try:
+            page_index = await fetch_page_index()
+        except Exception as e:
+            logger.warning(f"docs page index fetch failed, using index body only: {e}")
+            page_index = None
+
+        return format_index_for_prompt(payload, page_index)
     except Exception as e:
         logger.warning(f"docs index fetch failed, continuing without it: {e}")
         return ""
