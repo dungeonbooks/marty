@@ -30,11 +30,11 @@ class Config:
     NEURALWATT_BASE_URL: str = os.getenv(
         "NEURALWATT_BASE_URL", "https://api.neuralwatt.com/v1"
     )
-    # Pinned: the `glm-5.2` alias load-balances across backends. Measured over 12
-    # identical requests it cost $0.003686 against $0.000644 pinned, ~5.7x.
-    MARTY_MODEL: str = os.getenv("MARTY_MODEL", "glm-5.2-short")
+    # Flash matched kimi-k2.6-fast on style rules at about a ninth of the cost;
+    # see docs/model_eval_2026-09-27.md.
+    MARTY_MODEL: str = os.getenv("MARTY_MODEL", "glm-5.3-flash")
 
-    # GLM-5.2 defaults to `max` reasoning effort. Chat replies are 1-5 sentences,
+    # GLM defaults to `max` reasoning effort. Chat replies are 1-5 sentences,
     # so the extra thinking is billed as output for no benefit. The optimizer does
     # structured extraction off the hot path, where depth is worth the latency.
     MARTY_CHAT_REASONING_EFFORT: str = os.getenv(
@@ -44,7 +44,7 @@ class Config:
         "MARTY_OPTIMIZER_REASONING_EFFORT", "high"
     )
     # Ceiling, not a target: the prompt caps replies at 1-5 sentences and
-    # glm-5.2-short lands around 100 output tokens either way. The headroom is
+    # glm-5.3-flash lands around 115 output tokens either way. The headroom is
     # for reasoning models, which bill thinking against this budget - at 500
     # kimi-k2.6 spent the whole allowance thinking and returned empty content.
     MARTY_MAX_TOKENS: int = int(os.getenv("MARTY_MAX_TOKENS", "1500"))
