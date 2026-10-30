@@ -17,7 +17,27 @@ from pathlib import Path
 # Add src to path so we can import from it
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from database import cleanup_database, close_db, get_db_session  # noqa: E402
+from database import (  # noqa: E402
+    cleanup_database,
+    close_db,
+    get_db_session,
+    test_db_connection,
+)
+
+
+async def wait_for_db(attempts: int = 12, delay: float = 5.0) -> bool:
+    """Retry until Postgres accepts connections.
+
+    Railway sleeps the idle database and wakes it on first contact, and the
+    connections that arrive while it is still starting are refused.
+    """
+    for attempt in range(1, attempts + 1):
+        if await test_db_connection():
+            return True
+        if attempt < attempts:
+            print(f"⏳ Database not ready ({attempt}/{attempts}), retrying in {delay}s")
+            await asyncio.sleep(delay)
+    return False
 
 
 async def main():
@@ -50,6 +70,10 @@ async def main():
         print("🚫 DRY RUN MODE - No data will be deleted")
 
     try:
+        if not await wait_for_db():
+            print("\n❌ Cleanup failed: database never became reachable")
+            return 1
+
         async with get_db_session() as db:
             stats = await cleanup_database(
                 db,
