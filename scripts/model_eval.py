@@ -9,7 +9,7 @@ Scores are a floor, not a verdict. They catch the mechanical rules; tone still
 needs reading, so every response is dumped alongside the table.
 
     uv run python scripts/model_eval.py
-    uv run python scripts/model_eval.py --models glm-5.2-short kimi-k2.6
+    uv run python scripts/model_eval.py --models glm-5.3-flash kimi-k3-fast
     uv run python scripts/model_eval.py --runs 3 --out /tmp/eval.md
 """
 
@@ -24,7 +24,7 @@ from src import ai_client
 from src.ai_client import generate_ai_response
 from src.config import config
 
-DEFAULT_MODELS = ["glm-5.2-short", "kimi-k2.6", "kimi-k2.6-fast"]
+DEFAULT_MODELS = ["glm-5.3-flash", "glm-5.3", "kimi-k3-fast"]
 
 # Reasoning tokens count against max_tokens. kimi-k2.6 spends the whole 500-token
 # production budget thinking and returns empty content, which the tool loop turns

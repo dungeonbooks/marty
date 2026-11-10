@@ -329,7 +329,7 @@ Add token as `DISCORD_BOT_TOKEN`.
 
 - `DATABASE_URL`: PostgreSQL connection string
 - `NEURALWATT_API_KEY`: LLM API key
-- `MARTY_MODEL`: Model to use (defaults to `glm-5.2-short`)
+- `MARTY_MODEL`: Model to use (defaults to `glm-5.3-flash`)
 - `HARDCOVER_API_TOKEN`: Book data API token
 - `DISCORD_BOT_TOKEN`: Discord bot token
 - `BOOKSHOP_AFFILIATE_ID`: Optional affiliate links
